@@ -1,0 +1,267 @@
+﻿using UnityEngine;
+using System.Collections.Generic;
+//using System.Runtime.Remoting.Messaging;
+
+namespace CFW.Framework
+{
+    // 이벤트 처리 콜백
+    // 리턴값이 false 면 이벤트 실행후 등록을 해제합니다.
+    public delegate bool GameEventCallBack(GameEvent eEvent, IGameEventParam param);
+	//public delegate bool GameEventCallBackEx( GameEvent eEvent , params object[] param );
+
+	public class GameEventEntry
+    {
+        public GameEvent Event = GameEvent.UnKnownEvent;
+        public List<GameEventHandler> ListHandler = new List<GameEventHandler>();
+
+        public void RemoveHandler(GameEventHandler handler)
+        {
+            if (handler == null)
+                return;
+
+            for (int nCount = 0; nCount < ListHandler.Count; ++nCount)
+            {
+                if(ListHandler[nCount] == null
+                    || ListHandler[nCount].GetInstanceID() == handler.GetInstanceID())
+                {
+                    ListHandler.RemoveAt(nCount);
+                    nCount--;
+                }
+            }
+        }
+
+        public void RaiseEvent(IGameEventParam param)
+        {
+            // 아래 콜백 호출과정에서 일정량의 GC Alloc 이 발생함
+            // ex) 아무것도 안하고 가만이 있는 경우 Input_UpdateMouse 이벤트에서 60byte 정도 발생
+            // 발생원인은 delegate 호출시 delegate 자체에서 boxing 이 일어나기 때문임..
+            // 이것을 해결하자면.. GameEventManager 에 이벤트를 처리할 콜백을 등록하는 방식에서
+            // GameEventHandler 를 상속받은 오브젝트들의 OnEvent(GameEvent eventParam, IGameEventParam param) 같은 함수를 호출하여 넘겨주고
+            // 각 이벤트별 처리함수 분기는 각 개별 오브젝트의 OnEvent 내부에서 처리해야 할듯..
+
+            for (int i = 0; i < ListHandler.Count; ++i)
+            {
+                // 콜백이 등록되어 있지 않으면 등록 취소
+                if (ListHandler[i] == null)
+                {
+                    ListHandler.RemoveAt(i);
+                    i--;
+                    continue;
+                }
+
+                if (ListHandler[i].OnEvent(Event, param) == false)
+                {
+                    //Debug.LogWarningFormat("---- [ RemoveEventHandler ] Event = {0}, Handler = {1}, HandlerCount = {2}, RemoveIndex = {3}"
+                    //    , Event, ListHandler[i].name, ListHandler.Count, i);
+
+                    // 콜백 실행결과가 false 면 1회용 콜백이니 등록 취소
+                    ListHandler.RemoveAt(i);
+                    i--;
+                }
+            }
+        }
+
+		public void RaiseEvent( params object[] param )
+		{
+			for( int i = 0 ; i < ListHandler.Count ; ++i )
+			{
+				// 콜백이 등록되어 있지 않으면 등록 취소
+				if( ListHandler[ i ] == null )
+				{
+					ListHandler.RemoveAt( i );
+					i--;
+					continue;
+				}
+
+				if( ListHandler[ i ].OnEvent( Event , param ) == false )
+				{					
+					ListHandler.RemoveAt( i );
+					i--;
+				}
+			}
+		}
+	}
+
+    public class GameEventCallBackEntry
+    {
+        public GameEvent Event = GameEvent.UnKnownEvent;
+        private readonly List<GameEventCallBack> _callBack = new List<GameEventCallBack>();
+		//public List<GameEventCallBackEx> CallBackEx = new List<GameEventCallBackEx>();
+
+		public void AddCallBack(GameEventCallBack callback)
+        {
+            for (int nCount = 0; nCount < _callBack.Count; ++nCount)
+            {
+                if (_callBack[nCount] == callback)
+                    return;
+            }
+
+            _callBack.Add(callback);
+        }
+
+        public void RemoveCallBack(GameEventCallBack callback)
+        {
+            for (int nCount = 0; nCount < _callBack.Count; ++nCount)
+            {
+                if (_callBack[nCount] == callback)
+                {
+                    _callBack.RemoveAt(nCount);
+                    nCount--;
+                }
+            }
+        }
+
+        public void RaiseEvent(IGameEventParam param)
+        {
+            for (int nCount = 0; nCount < _callBack.Count; ++nCount)
+            {
+                if (_callBack[nCount] == null)
+                {
+                    _callBack.RemoveAt(nCount);
+                    nCount--;
+                    continue;
+                }
+
+                if (_callBack[nCount](Event, param) == false)
+                {
+                    // 콜백 실행결과가 false 면 1회용 콜백이니 등록 취소
+                    _callBack.RemoveAt(nCount);
+                    nCount--;
+                }
+            }
+        }
+
+		//public void RaiseEvent( params object[] param )
+		//{
+		//	for( int nCount = 0 ; nCount < CallBack.Count ; ++nCount )
+		//	{
+		//		if( CallBackEx[ nCount ] == null )
+		//		{
+		//			CallBackEx.RemoveAt( nCount );
+		//			nCount--;
+		//			continue;
+		//		}
+
+		//		if( CallBackEx[ nCount ]( Event , param ) == false )
+		//		{
+		//			// 콜백 실행결과가 false 면 1회용 콜백이니 등록 취소
+		//			CallBackEx.RemoveAt( nCount );
+		//			nCount--;
+		//		}
+		//	}
+		//}
+	}
+
+    public class GameEventManager : Common.Utils.Coding.StaticInstance<GameEventManager>
+    {
+        #region Handler 기반 이벤트 처리
+
+        private readonly GameEventEntry[] _events = new GameEventEntry[(int) GameEvent.Max];
+
+        public void RegisterEvent(GameEventHandler handler, GameEvent gameEvent)
+        {
+            if (handler == null)
+                return;
+
+            GameEventEntry find = _events[(int) gameEvent];
+
+            if (find == null)
+            {
+                GameEventEntry newEntry = new GameEventEntry {Event = gameEvent};
+                newEntry.ListHandler.Add(handler);
+                _events[(int) gameEvent] = newEntry;
+            }
+            else
+            {
+                for (int nCount = 0; nCount < find.ListHandler.Count; ++nCount)
+                {
+                    // 이미 등록된 핸들러임
+                    if (find.ListHandler[nCount] == handler)
+                        return;
+
+                    // 이벤트를 등록한 주체인 Handler 가 소실된것 제거
+                    if (find.ListHandler[nCount] == null)
+                    {
+                        find.ListHandler.RemoveAt(nCount);
+                        --nCount;
+                    }
+                }
+
+                find.ListHandler.Add(handler);
+            }
+        }
+
+        public void UnRegisterEvent(GameEvent gameEvent, GameEventHandler handler)
+        {
+            GameEventEntry find = _events[(int)gameEvent];
+            if (find != null)
+                find.RemoveHandler(handler);
+        }
+        #endregion
+
+        #region CallBack 기반 이벤트 처리 - delegate 호출시 Boxing / UnBoxing 에 의한 GC Alloc 발생함
+        //Dictionary<GameEvent, GameEventCallBackEntry> _eventCallbacks = new Dictionary<GameEvent, GameEventCallBackEntry>();
+
+        private readonly GameEventCallBackEntry[] _eventCallbacks = new GameEventCallBackEntry[(int) GameEvent.Max];
+
+        public void RegisterEventCallBack(GameEvent gameEvent, GameEventCallBack callBack)
+        {
+            if (callBack == null)
+                return;
+
+            if (gameEvent <= GameEvent.UnKnownEvent || gameEvent >= GameEvent.Max)
+                return;
+
+            var find = _eventCallbacks[(int) gameEvent];
+            if (find == null)
+            {
+                var newEntry = new GameEventCallBackEntry {Event = gameEvent};
+                newEntry.AddCallBack(callBack);
+                _eventCallbacks[(int) gameEvent] = newEntry;
+            }
+            else
+            {
+                find.AddCallBack(callBack);
+            }
+        }
+
+        public void UnRegisterEventCallBack(GameEvent gameEvent, GameEventCallBack callBack)
+        {
+            if (callBack == null)
+                return;
+
+            var find = _eventCallbacks[(int) gameEvent];
+            if ( find != null )
+                find.RemoveCallBack(callBack);
+
+            //if ( _eventCallbacks[(int)gameEvent] )
+            //if (_eventCallbacks.TryGetValue(gameEvent, out find) == true)
+            //    find.RemoveCallBack(callBack);
+        }
+        #endregion
+
+        public void SendEvent(GameEvent gameEvent, IGameEventParam param)
+        {
+            var find = _events[(int) gameEvent];
+            if (find != null)
+                find.RaiseEvent(param);
+
+            var eventCallBack = _eventCallbacks[(int) gameEvent];
+            if (eventCallBack != null)
+                eventCallBack.RaiseEvent(param);
+        }
+
+        public void SendEvent( GameEvent gameEvent , params object[] param )
+		{
+            var find = _events[(int)gameEvent];
+            if (find != null)
+                find.RaiseEvent(param);
+
+            //if( _eventCallbacks.ContainsKey( gameEvent ) == true )
+            //{
+            //	if( _eventCallbacks.TryGetValue( gameEvent , out findCallBack ) == true )
+            //		findCallBack.RaiseEvent( param );
+            //}
+        }
+    }
+}

@@ -1,0 +1,170 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class Scene_Option : MonoBehaviour {
+    public int LanguageType = 0;
+    public dfSlider BGMSlider;
+    public dfSlider EffectSlider;
+    public dfCheckbox VibOnCheck;
+    public dfCheckbox vibOffCheck;
+
+    public dfLabel lbOptionTitle;
+    public dfLabel lbLanguageSetting;
+    public dfLabel lbBGM;
+    public dfLabel lbEffect;
+    public dfLabel lbVib;
+    public dfLabel lbVibOn;
+    public dfLabel lbVibOff;
+
+    public dfButton btBack;
+
+    public dfCheckbox[] cbLang;
+    GameContext gc;
+
+    void SetLocalString()
+    {
+        LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+
+        lbOptionTitle.Text = local.GetString(2405);
+        lbLanguageSetting.Text = local.GetString(2408);
+        lbBGM.Text = local.GetString(2512);
+        lbEffect.Text = local.GetString(2513);
+        lbVib.Text = local.GetString(2514);
+        lbVibOn.Text = local.GetString(2520);
+        lbVibOff.Text = local.GetString(2521);
+    }
+
+    void Awake()
+    {
+        gc = GameContext.GetInstance;
+        GameContext.GetInstance.inputHandler.SetDelegateToBackKey(this.OnBack_OptionClicked);
+        btBack.Click += new MouseEventHandler(btBack_Click);
+        ActiveLanguage(gc.localizedStringData.LocalizeState);
+        SetLocalString();
+
+        BGMSlider.Value = gc.soundManager.BGMVolume;
+        EffectSlider.Value = gc.soundManager.SEVolume;
+
+        BGMSlider.ValueChanged += new PropertyChangedEventHandler<float>(BGMSlider_ValueChanged);
+        EffectSlider.ValueChanged += new PropertyChangedEventHandler<float>(EffectSlider_ValueChanged);
+        
+        VibOnCheck.IsChecked = gc._input.vibEnable;
+
+        if (gc._input.vibEnable)
+        {
+            VibOnCheck.IsChecked = true;
+        }
+        else 
+        {
+            vibOffCheck.IsChecked = true;
+        }
+        VibOnCheck.CheckChanged += new PropertyChangedEventHandler<bool>(VibCheck_CheckChanged);
+
+        for (int i = 0; i < cbLang.Length ; i++)
+            cbLang[i].CheckChanged += new PropertyChangedEventHandler<bool>(LanguageCheckChanged);
+    }
+
+    void btBack_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        OnBack_OptionClicked();
+    }
+
+    void LanguageCheckChanged(dfControl control, bool value)
+    {
+        if (value)
+        {
+            for (int i = 0; i < cbLang.Length; i++)
+            {
+                if (control == cbLang[i])
+                {
+                    Debug.Log("Control : " + control + ", " + i);
+                    if (i == 0)
+                    {
+                        gc.localizedStringData.LocalizeState = 6;
+                        gc.localizedStringData.LoadString(6);
+                        cbLang[0].IsChecked = true;
+                        cbLang[1].IsChecked = false;
+                    }
+                    else
+                    {
+                        gc.localizedStringData.LocalizeState = 7;
+                        gc.localizedStringData.LoadString(7);
+                        cbLang[0].IsChecked = false;
+                        cbLang[1].IsChecked = true;
+                    }
+                    SetLocalString();
+                }
+            }
+        }
+    }
+
+    void VibCheck_CheckChanged(dfControl control, bool value)
+    {
+        gc._input.vibEnable = value;
+    }
+
+    void EffectSlider_ValueChanged(dfControl control, float value)
+    {
+        gc.soundManager.SEVolume = value;
+        gc.soundManager.ApplyVolume();
+        if (soundCheck_FrameCount > 30)
+        {
+            soundCheck_FrameCount = 0;
+            GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        }
+        else
+        {
+            ++soundCheck_FrameCount;
+        }
+    }
+    int soundCheck_FrameCount = 50;
+
+    void BGMSlider_ValueChanged(dfControl control, float value)
+    {
+        gc.soundManager.BGMVolume = value;
+        gc.soundManager.ApplyVolume();
+    }
+
+    public void OnBack_OptionClicked()
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        gc.inputHandler.BackToPreviousInputEvent();
+        gc.gameData.SetOptionToSaveData();
+        gc.gameData.SaveSystemData();
+        gc.sceneMover.SetPrevSceneRootActive(true);
+        
+        Scene_MainMenu MainMenu = GameObject.FindObjectOfType<Scene_MainMenu>();
+        if (MainMenu != null)
+        {
+            MainMenu.SetLocalString();
+        }
+
+        Scene_PauseMenu PauseMenu = GameObject.FindObjectOfType<Scene_PauseMenu>();
+        if (PauseMenu != null)
+        {
+            PauseMenu.SetLocalString();
+        }
+       
+        Destroy(this.gameObject);
+    }
+        
+    //const int KOREAN = 1;
+    //const int ENGLISH = 2;
+    //const int JAPANESE = 3;
+    //const int FRENCH = 4;
+    //const int GERMAN = 8;
+    //const int CHINESE_GAN = 6;
+    //const int CHINESE_BUN = 7;
+    
+    void ActiveLanguage(int langType)
+    {
+        for (int i = 0; i < cbLang.Length; i++)
+        {
+            if (langType == (i + 1))
+            { cbLang[i].IsChecked = true; }
+            else { cbLang[i].IsChecked = false; }
+        }
+
+    }
+
+}

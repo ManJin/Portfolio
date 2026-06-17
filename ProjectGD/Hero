@@ -1,0 +1,745 @@
+﻿using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using HutongGames.PlayMaker;
+
+public class Hero : CharacterBase
+{
+    #region Variables
+
+    public int level = 0;
+    public int HeroSoulCount = 0;
+    public float power = 0;
+    public float technique = 0;
+    public float mental = 0;
+    public float vital = 0;
+
+    public float lifeGuage = 0;
+    public float activityGuage = 0;
+    public float soulGuage = 0;
+    public float attack = 0;
+    public float atkSpeed = 0;
+    public float movSpeed = 0;
+    public float dashSpeed = 0;
+    public readonly float revisionSoulValue = 10.0f;
+
+    public GameObject ShootLocation = null;
+    public Transform LeftHandTr = null;
+    public Transform RightHandTr = null;
+
+    public Animator heroAnimator = null;
+    public CharacterController HeroController = null;
+    public Rigidbody RigidHero = null;
+    
+    public bool AttackTargetOn = false;
+    public bool MoveState = false;
+
+    Vector3 renewPos = Vector3.zero;
+
+    [HideInInspector]
+    public int Direction = 0;
+    [HideInInspector]
+    public float DirectionDampTime = .25f;
+
+    //readonly float basicValue = 100.0f;
+    readonly float useActivityGuageValue = 20.0f;
+    readonly float basicAttackSpeed = 2.0f;
+
+    float chargeActivityAmount = 0.5f;
+
+    float unbeatableTime = 0.0f;
+    float HeroFlickerTime = 0.0f;
+    float maximumActivityGuage = 0.0f;
+    float maximumSoulGuage = 0.0f;
+    float maximumLifeGuage = 0.0f;
+
+    public Golem CurrentTargetGolem;
+    public SphereCollider range = null;
+    Quaternion screenSpace = Quaternion.identity;
+    Vector3 screenForward = Vector3.zero;
+    Vector3 screenRight = Vector3.zero;
+
+    public BoxCollider LeftHandCollider = null;
+    public BoxCollider RightHandCollider = null;
+
+    #endregion
+    #region MonoBehaviourMethods
+
+
+    protected override void Awake()
+    {
+        base.Awake();
+        SetHeroBattleStatFromData();
+        HeroController = GetComponent<CharacterController>();
+    }
+
+    protected override void Start()
+    {
+        base.Start();
+    }
+
+    void Update()
+    {
+        StageBase stage = GameContext.GetInstance.stage;
+
+        //Debug.Log(heroAnimator.gameObject.name + " : " + myTrans.name);
+        renewPos = Vector3.zero - heroAnimator.gameObject.transform.localPosition;
+        heroAnimator.gameObject.transform.localPosition = Vector3.zero;
+        myTrans.position += renewPos;
+
+        if (stage.InGameState == StageBase.GameState.Win && myState != State.WIN)
+            HeroFsm.SendEvent("WIN");
+
+        InputHero();
+        ChargeActivityGuage();
+        CalSoulGuageCount();
+        if (stage.InGameState != StageBase.GameState.Event)
+        {
+            UnbeatableCheck();
+            PickAttackTarget();
+        }
+
+        if (GetCurrentEnemyTarget() != null)
+        {
+            Vector3 lookdir = GetCurrentEnemyTarget().GolemHitCollider[0].transform.position;
+            GetTransform().LookAt(new Vector3(lookdir.x, 0, lookdir.z));
+        }
+    }
+
+    #endregion
+    #region PublicMethods
+
+    public float AtkPower()
+    {
+        return myBattleStat.attack;
+    }
+
+    public BattleStat GetHeroBattleStat()
+    {
+        return myBattleStat;
+    }
+
+    public bool GetDamage(float amount)
+    {
+        if (!unbeatableState)
+        {
+            //Debug.Log("DebugLife : " + (myBattleStat.lifeGuage - amount));
+            if (myBattleStat.lifeGuage - amount > 0.0f)
+            {
+                myBattleStat.lifeGuage -= amount;
+                SetCharState(CharacterBase.State.DAMAGE);
+                HeroFsm.SendEvent("DOWN");
+                unbeatableState = true;
+                return true;
+            }
+            else
+            {
+                myBattleStat.lifeGuage = 0.0f;
+                SetCharState(CharacterBase.State.DEAD);
+                HeroFsm.SendEvent("DIE");
+                unbeatableState = true;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public Golem GetCurrentEnemyTarget()
+    {
+        return CurrentTargetGolem;
+    }
+
+    public void AddSoulGuage()
+    {
+        myBattleStat.soulGuage += revisionSoulValue;
+        if (myBattleStat.soulGuage  >= maximumSoulGuage)
+            myBattleStat.soulGuage = maximumSoulGuage;
+    }
+
+    public void ClickSkill()
+    {
+        if (myBattleStat.soulGuage >= 100)
+        {
+            GameObject skillBullet = ObjectPoolManager.Instance.Spawn("DummySkill", LeftHandTr.position);
+            ParticleSystem ps = skillBullet.transform.GetChild(0).particleSystem;
+            if (myBattleStat.soulGuage == 500)
+            {
+                ps.startSize = 6;
+                ps.startColor = Color.red;
+                UseSoulGuage(500);
+            }
+            else if (myBattleStat.soulGuage >= 400 && myBattleStat.soulGuage < 500)
+            {
+                ps.startSize = 5;
+                ps.startColor = Color.yellow;
+                UseSoulGuage(400);
+            }
+            else if (myBattleStat.soulGuage >= 300 && myBattleStat.soulGuage < 400)
+            {
+                ps.startSize = 4;
+                ps.startColor = Color.green;
+                UseSoulGuage(300);
+            }
+            else if (myBattleStat.soulGuage >= 200 && myBattleStat.soulGuage < 300)
+            {
+                ps.startSize = 3;
+                ps.startColor = Color.blue;
+                UseSoulGuage(200);
+            }
+            else if (myBattleStat.soulGuage >= 100 && myBattleStat.soulGuage < 200)
+            {
+                ps.startSize = 2;
+                UseSoulGuage(100);
+            }
+            InGameCircleGuage guage = GameObject.Find("SkillCircleOn").GetComponent<InGameCircleGuage>();
+            guage.InitCurrentArray();
+        }
+    }
+    
+    public bool UseSoulGuage(float amount)
+    {
+        if (myBattleStat.soulGuage - amount >= 0.0f)
+        {
+            Debug.Log("SkillTrue");
+            myBattleStat.soulGuage -= amount;
+            return true;
+        }
+        else
+        {
+            Debug.Log("SkillFalse");
+            return false;
+        }
+    }
+
+    public bool LockEnemyWithoutInput()
+    {
+        //Debug.Log("Without Input");
+        Golem[] golems = GameObject.FindObjectsOfType<Golem>();
+
+        float minDist = 999999999999.0f;
+        int enemyNumber = -1;
+        if (golems.Length == 0)
+        {
+            CurrentTargetGolem = null;
+            return false;
+        }
+
+        float radAngle = Camera.main.fieldOfView * Mathf.Deg2Rad;
+        float radHFOV = 2 * Mathf.Atan(Mathf.Tan(radAngle / 2) * Camera.main.aspect);
+        float hfov = radHFOV * Mathf.Rad2Deg;
+
+        if (CurrentTargetGolem == null)
+        {//기존타겟이 없으면 
+            for (int i = 0; i < golems.Length; i++)
+            {
+
+                Vector3 enemyPos = golems[i].GetTransform().position;
+                Vector3 cameraPos = myTrans.position;
+                Vector3 cameraFor = myTrans.forward;
+                Vector3 dixy = (enemyPos - cameraPos).normalized;
+
+                float theta = Mathf.Acos(Vector3.Dot(cameraFor, dixy)) * Mathf.Rad2Deg;
+                if (golems[i].GetState() == EnemyBase.State.DEATH) continue;// 찾은 골렘이 죽어있으면 제외
+
+                if (Mathf.Abs(theta) > (hfov / 2)) continue;// 전방 일정 범위 밖이면 제외
+
+                float dist = Mathf.Sqrt(Mathf.Pow((enemyPos.x - myTrans.position.x), 2) + Mathf.Pow((enemyPos.z - myTrans.position.z), 2));
+
+                if (dist > range.radius) continue;// 캐릭터와의 거리가 공격 사거리 밖이면 제외
+
+                if (minDist >= dist)
+                {
+                    minDist = dist;
+                    enemyNumber = i;
+                }
+            }
+            if (enemyNumber != -1)
+            {
+                if (golems[enemyNumber].GetState() == EnemyBase.State.DEATH)
+                {
+                    CurrentTargetGolem = null;
+                    return false;
+                }
+                CurrentTargetGolem = golems[enemyNumber];
+                return true;
+            }
+            else// 1번 범위와 2번 범위의 교집합 되는 공간에서의 검색에서 없으면
+            {
+                if (LockEnemyInSecondRange())
+                    return true;
+                CurrentTargetGolem = null;
+                return false;
+            }
+        }
+        else//현재 타겟이 있으면 그냥 그 타겟 유지.
+        {
+            return true;
+        }
+        
+    }
+    public bool ViewCheck()
+    {
+        if (CurrentTargetGolem == null) return false;
+
+        Vector3 enemyPos = CurrentTargetGolem.transform.position;
+        Vector3 cameraPos = myTrans.position;
+        Vector3 cameraFor = GetCharMoveDir();
+        Vector3 dixy = (enemyPos - cameraPos).normalized;
+
+        float theta = Mathf.Acos(Vector3.Dot(cameraFor, dixy)) * Mathf.Rad2Deg;
+        if (Mathf.Abs(theta) > 45.0f)
+        {
+            myTrans.rotation = Quaternion.LookRotation(GetCharMoveDir());
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool LockEnemyWithInput()//아날로그 스틱 방향. 
+    {
+        //Debug.Log("With Input");
+        Golem[] golems = GameObject.FindObjectsOfType<Golem>();
+
+        float minDist = 999999999999.0f;
+        int enemyNumber = -1;
+        if (golems.Length == 0)
+        {
+            CurrentTargetGolem = null;
+            return false;
+        }
+
+        //카메라 fov 값으로 hfov 구하기. 
+        //float radAngle = Camera.main.fieldOfView * Mathf.Deg2Rad;
+        //float radHFOV = 2 * Mathf.Atan(Mathf.Tan(radAngle / 2) * Camera.main.aspect);
+        //float hfov = radHFOV * Mathf.Rad2Deg;
+
+        if (CurrentTargetGolem == null)
+        {//기존타겟이 없으면 
+            for (int i = 0; i < golems.Length; i++)
+            {
+
+                Vector3 enemyPos = golems[i].GetTransform().position;
+                Vector3 cameraPos = myTrans.position;
+                Vector3 cameraFor = GetCharMoveDir();
+                Vector3 dixy = (enemyPos - cameraPos).normalized;
+
+                //Debug.DrawLine(myTrans.position, cameraFor);
+                float theta = Mathf.Acos(Vector3.Dot(cameraFor, dixy)) * Mathf.Rad2Deg;
+                if (golems[i].GetState() == EnemyBase.State.DEATH) continue;// 찾은 골렘이 죽어있으면 제외
+
+                
+                if (Mathf.Abs(theta) > 45.0f) continue;// 전방 일정 범위 밖이면 제외
+
+                float dist = Mathf.Sqrt(Mathf.Pow((enemyPos.x - myTrans.position.x), 2) + Mathf.Pow((enemyPos.z - myTrans.position.z), 2));
+
+                if (dist > range.radius) continue;// 캐릭터와의 거리가 공격 사거리 밖이면 제외
+
+                if (minDist >= dist)
+                {
+                    minDist = dist;
+                    enemyNumber = i;
+                    //Debug.Log(enemyNumber);
+                }
+            }
+            if (enemyNumber != -1)
+            {
+                if (golems[enemyNumber].GetState() == EnemyBase.State.DEATH)
+                {
+                    CurrentTargetGolem = null;
+                    return false;
+                }
+                CurrentTargetGolem = golems[enemyNumber];
+                return true;
+            }
+            else// 1번 범위와 2번 범위의 교집합 되는 공간에서의 검색에서 없으면
+            {
+                CurrentTargetGolem = null;
+                return false;
+            }
+        }
+        else//현재 타겟이 있으면 그냥 그 타겟 유지.
+        {
+            return true;
+        }
+
+    }
+    bool LockEnemyInSecondRange()
+    {
+        Golem[] golems = GameObject.FindObjectsOfType<Golem>();
+
+        float minDist = 999999999999.0f;
+        int enemyNumber = -1;
+        if (golems.Length == 0)
+        {
+            CurrentTargetGolem = null;
+            return false;
+        }
+
+        for (int i = 0; i < golems.Length; i++)
+        {
+            Vector3 enemyPos = golems[i].GetTransform().position;
+            if (golems[i].GetState() == EnemyBase.State.DEATH)
+                continue;
+
+            float dist = Mathf.Sqrt(Mathf.Pow((enemyPos.x - myTrans.position.x), 2) + Mathf.Pow((enemyPos.z - myTrans.position.z), 2));
+
+            if (dist > range.radius) continue;// 캐릭터와의 거리가 공격 사거리 밖이면 제외
+
+            if (minDist >= dist)
+            {
+                minDist = dist;
+                enemyNumber = i;
+            }
+        }
+
+        if (enemyNumber != -1)
+        {
+            if (golems[enemyNumber].GetState() == EnemyBase.State.DEATH)
+            {
+                CurrentTargetGolem = null;
+                return false;
+            }
+            CurrentTargetGolem = golems[enemyNumber];
+        }
+        else
+        {
+            CurrentTargetGolem = null;
+            return false;
+        }
+        return true;
+    }
+
+    public float GetActivityGuage()
+    {
+        return myBattleStat.activityGuage;
+    }
+    public float GetSoulGuage()
+    {
+        return myBattleStat.soulGuage;
+    }
+    public float GetMaximSoulGuage()
+    {
+        return maximumSoulGuage;
+    }
+    public void RefreshActivityGuage()
+    {
+        StageAssetManager sm = StageAssetManager.GetInstance;
+        myBattleStat.activityGuage = sm.HeroSetting.bstat.activityGuage;
+    }
+
+    public float GetAttackSpeed()//장비 등에 따른 어택 속도 조정 내용 추가.
+    {
+        attackSpeed = basicAttackSpeed - myBattleStat.atkSpeed;
+        return attackSpeed;
+    }
+
+    public bool UseActivityGuage()
+    {
+        if (myBattleStat.activityGuage < useActivityGuageValue)
+            return false;
+
+        if (myBattleStat.activityGuage - useActivityGuageValue > 0.0f)
+        {
+            myBattleStat.activityGuage -= useActivityGuageValue;
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    public void SetCharState(State state)
+    {
+        myState = state;
+    }
+    public float GetHPPercentage()
+    {
+        float retVal = (myBattleStat.lifeGuage / maximumLifeGuage ) * 100.0f;
+        return retVal;
+    }
+    public float GetSoulPercentage()
+    {
+        float retVal = (myBattleStat.soulGuage / maximumSoulGuage) * 100.0f;
+        return retVal;
+    }
+    public float GetStaminaPercentage()
+    {
+        float retVal = (myBattleStat.activityGuage / maximumActivityGuage) * 100.0f;
+        return retVal;
+    }
+    public int GetDirection()
+    {
+        if (AttackTargetOn || myState == State.IDLE)
+            Direction = 0;
+
+        return Direction;
+    }
+
+    public bool Hitcondition()
+    {
+        if (myState == State.ATTACK || myState == State.IDLE || myState == State.MOVE)
+            return true;
+        else
+            return false;
+    }
+
+    public State GetState()
+    {
+        return myState;
+    }
+  
+    #endregion
+
+
+    #region Methods
+    
+
+    Vector3 GetCharMoveDir()
+    {
+        //카메라 보고 있는 방향 기준으로 변경할것.
+        Vector3 pos = Vector3.zero;
+        screenSpace = Quaternion.Euler(0, Camera.main.transform.eulerAngles.y, 0);
+        screenForward = screenSpace * Vector3.forward;
+        screenRight = screenSpace * Vector3.right;
+        InputManager input = GameContext.GetInstance.inputManager;
+#if UNITY_EDITOR || UNITY_STANDALONE
+        pos = input.GetAxis(InputManager.InputAxis.X360_LeftStick_X) * screenRight + input.GetAxis(InputManager.InputAxis.X360_LeftStick_X) * screenForward;
+#elif UNITY_ANDROID
+        pos = input.NormalizedTouchPos.x * screenRight + input.NormalizedTouchPos.y * screenForward;
+#endif
+
+        return new Vector3(pos.x, 0, pos.z).normalized;
+    }
+
+    void InputHero()
+    {
+        InputManager input = GameContext.GetInstance.inputManager;
+
+        if (input.GetCrossInput(InputManager.Direction.LEFT) || input.GetCrossInput(InputManager.Direction.RIGHT))
+            MoveState = true;
+
+        else if (input.GetCrossInput(InputManager.Direction.UP) || input.GetCrossInput(InputManager.Direction.DOWN))
+            MoveState = true;
+
+        else
+            MoveState = false;
+
+        if (input.GetButtonDown(InputManager.InputButton.X360_RB))
+            myBattleStat.movSpeed = myBattleStat.movSpeed * 3.0f;
+
+        if (input.GetButtonUp(InputManager.InputButton.X360_RB))
+            myBattleStat.movSpeed = myBattleStat.movSpeed / 3.0f;
+    }
+
+    void SetHeroBattleStatFromData()
+    {
+        StageAssetManager sm = StageAssetManager.GetInstance;
+        myStat.level = sm.HeroSetting.stat.level;
+        myStat.power = sm.HeroSetting.stat.power;
+        myStat.technique = sm.HeroSetting.stat.technique;
+        myStat.mental = sm.HeroSetting.stat.mental;
+        myStat.vital = sm.HeroSetting.stat.vital;
+
+        //기타 변수에 따른 캐릭터 능력치 변경. 
+
+        myBattleStat.lifeGuage = maximumLifeGuage = sm.HeroSetting.bstat.lifeGuage; // * 장비 값 곱할것. 
+        myBattleStat.activityGuage = maximumActivityGuage = sm.HeroSetting.bstat.activityGuage; // * 장비 값 곱할것. 
+        maximumSoulGuage = sm.HeroSetting.bstat.soulGuage; // * 장비 값 곱할것. 
+        myBattleStat.soulGuage = 500.0f;
+        myBattleStat.attack = sm.HeroSetting.bstat.attack; // * 장비 값 곱할것. 
+        myBattleStat.atkSpeed = sm.HeroSetting.bstat.atkSpeed; // * 장비 값 곱할것. 
+        myBattleStat.movSpeed = sm.HeroSetting.bstat.movSpeed; // * 장비 값 곱할것. 
+        myBattleStat.dashSpeed = sm.HeroSetting.bstat.dashSpeed;
+        //myBattleStat.dashMoveSpeed = sm.HeroSetting.bstat.dashMoveSpeed;
+        myState = State.IDLE;
+    }
+
+    void SetHeroBattleStatFromEditor()
+    {
+        myStat.level = level;
+        myStat.power = power;
+        myStat.technique = technique;
+        myStat.mental = mental;
+        myStat.vital = vital;
+
+        //기타 변수에 따른 캐릭터 능력치 변경. 
+        myBattleStat.lifeGuage = maximumLifeGuage = lifeGuage; // * 장비 값 곱할것. 
+        myBattleStat.activityGuage = maximumActivityGuage = activityGuage; // * 장비 값 곱할것. 
+        maximumSoulGuage = soulGuage; // * 장비 값 곱할것. 
+        myBattleStat.soulGuage = 500.0f;
+        myBattleStat.attack = attack; // * 장비 값 곱할것. 
+        myBattleStat.atkSpeed = atkSpeed; // * 장비 값 곱할것. 
+        myBattleStat.movSpeed = movSpeed; // * 장비 값 곱할것. 
+        myBattleStat.dashSpeed = dashSpeed;
+        myState = State.IDLE;
+    }
+
+    void PickAttackTarget()
+    {
+        if (Input.GetMouseButtonUp(0))
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            int layerMaskUnit = 1 << LayerMask.NameToLayer("DamageArea");
+            RaycastHit[] hits;
+            hits = Physics.RaycastAll(ray, Mathf.Infinity, layerMaskUnit);
+
+            int i = 0;
+            while (i < hits.Length)
+            {
+                CurrentTargetGolem = hits[i].transform.root.GetComponent<Golem>();
+                if (CurrentTargetGolem.HitTargetUI[hits[i].transform.name].IsTargetActive)
+                {
+                    if (!CurrentTargetGolem.HitLocationTr.Contains(hits[i].transform))
+                    {
+                        CurrentTargetGolem.HitTargetUI[hits[i].transform.name].SetActiveColor();
+                        CurrentTargetGolem.HitLocationTr.Add(hits[i].transform);
+                        AttackTargetOn = true;
+                    }
+                    return;
+                }
+                i++;
+            }
+        }
+    }
+
+    void UnbeatableCheck()
+    {
+        if (unbeatableState == true && myState != State.DEAD)
+        {
+            if (myState != State.EVADE)
+            {
+                unbeatableTime += Time.deltaTime;
+                HeroFlickerTime += Time.deltaTime;
+            }
+
+            if (unbeatableTime > 1.3f && HeroFlickerTime > 0.1f)
+            {
+                foreach (SkinnedMeshRenderer mr in HeroMeshs)
+                {
+                    mr.enabled = !mr.enabled;
+                }
+                HeroFlickerTime = 0.0f;
+            }
+
+            if (unbeatableTime > 2.5f)
+            {
+                unbeatableState = false;
+                unbeatableTime = 0.0f;
+                HeroFlickerTime = 0.0f;
+
+                foreach (SkinnedMeshRenderer mr in HeroMeshs)
+                {
+                    mr.enabled = true;
+                }
+            }
+        }
+    }
+    
+    void ChargeActivityGuage()
+    {
+        if (myState == State.IDLE || myState == State.MOVE || myState == State.HIDE || myState == State.HIDEMOVE || myState == State.ATTACK)
+        {
+            if (myBattleStat.activityGuage < maximumActivityGuage)
+            {
+                myBattleStat.activityGuage += chargeActivityAmount;
+            }
+            else
+            {
+                myBattleStat.activityGuage = maximumActivityGuage;
+            }
+        }
+    }
+
+    void CalSoulGuageCount()
+    {
+        HeroSoulCount = (int)GetSoulPercentage() / 20;
+    }
+
+    #endregion
+
+
+//    #region Debug
+//#if UNITY_EDITOR
+//    void OnGUI()
+//    {
+//        if (ComponentSwitch.QA_Version)
+//        {
+//            GUIStyle style = new GUIStyle();
+//            style.fontSize = 30;
+//            style.normal.textColor = Color.white;
+
+//            GUI.TextField(new Rect(0.0f, 0.0f, 100, 30), "life : " + myBattleStat.lifeGuage.ToString("##0.##"), style);
+//            GUI.TextField(new Rect(0.0f, 30.0f, 200, 30), "stamina(dash -5) : " + myBattleStat.activityGuage.ToString("##0.##"), style);
+//            GUI.TextField(new Rect(0.0f, 60.0f, 100, 30), "soul : " + myBattleStat.soulGuage.ToString("##0.##"), style);
+//            GUI.TextField(new Rect(0.0f, 90.0f, 200, 30), "state : " + myState, style);
+//        }
+//    }
+//#endif
+//    #endregion
+   
+}
+
+public class HeroSetting
+{
+    public readonly string filePath = "/Data/";
+    public readonly string fileName = "HeroStatus";
+    public readonly string expend = ".txt";
+    public string content;
+    public CharacterBase.Stat stat;
+    public CharacterBase.BattleStat bstat;
+
+    public HeroSetting()
+    {
+        stat = new CharacterBase.Stat();
+        bstat = new CharacterBase.BattleStat();
+        if (LoadStatus(fileName))
+        {
+            Debug.Log("Hero Status Loaded");
+        }
+        else
+        {
+            Debug.Log("Hero Status Load Failed");
+        }
+    }
+
+    public bool LoadStatus(string filename)
+    {
+        CSVLoader loader = new CSVLoader(filename);
+        if (loader != null)
+        {
+            content = "";
+            for (int i = 0; i <= loader.LineMaxNum; i++)
+            {
+                if (i != 0)
+                {
+                    content += loader.GetString();
+                    content += "\n";
+                }
+                loader.NextLine();
+            }
+            
+            string[] loadedValue = content.Split(" "[0]);
+            stat.level = int.Parse(loadedValue[0]);
+            stat.power = float.Parse(loadedValue[1]);
+            stat.technique = float.Parse(loadedValue[2]);
+            stat.mental = float.Parse(loadedValue[3]);
+            stat.vital = float.Parse(loadedValue[4]);
+
+            bstat.lifeGuage = float.Parse(loadedValue[5]);
+            bstat.attack = float.Parse(loadedValue[6]);
+            bstat.movSpeed = float.Parse(loadedValue[9]);
+            bstat.activityGuage = float.Parse(loadedValue[7]);
+            bstat.dashSpeed = bstat.movSpeed * 2.0f;
+            bstat.soulGuage = 500;
+            bstat.atkSpeed = float.Parse(loadedValue[8]);
+
+            return true;
+        }
+        else
+            return false;
+
+    }
+}

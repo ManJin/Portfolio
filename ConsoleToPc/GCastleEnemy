@@ -1,0 +1,502 @@
+﻿using UnityEngine;
+using System.Collections;
+
+
+public class GCastleEnemy : GCastle {
+
+    public EnemyType type = EnemyType.NULL;
+
+    int rateRecoverSP = 80; //리커버 SP 스킬에 따른 발동확률. 
+    long lowestHP = 0; //행동패턴 변경에 쓰이도록. 진행중 가장 낮은 HP 값을 가진다. 
+
+
+    eGCastleSkillType skillType = eGCastleSkillType.GCastleSkillType_UnKnown;
+
+    eGCastleSkillType nextSkill = eGCastleSkillType.GCastleSkillType_UnKnown;
+
+
+    eAIType aiTable = eAIType.AIType_UnKnown;
+    int aiTableID = 0;
+
+    //GCastleSkillData m_Skill = null;
+
+    //public GCastleSkillData Skill
+    //{
+    //    get { return m_Skill; }
+    //}
+    /// <summary>
+    /// Initialize() : 초기화,
+    /// AI테이블, 스킬타입 등을 데이터 받아와서 저장할것. 
+    /// </summary>
+    /// 
+
+    void Awake()
+    {
+        base.Awake();
+        this.name = "Enemy";
+    }
+
+    public void Initialize()
+    {
+        scriptOwner = eAttacker.Enemy;
+        m_ID = gameData.EnemyGCastleID;
+        lowestHP = currentHP = maxHP = CalculateEnemyGCastleHP();
+        currentSP = maxSP = CalculateEnemyGCastleSP();
+        
+        ATK = CalculateEnemyGCastleBaseStatus(GCastle.Status.ATK);
+        DEF = CalculateEnemyGCastleBaseStatus(GCastle.Status.DEF);
+        INT = CalculateEnemyGCastleBaseStatus(GCastle.Status.INT);
+        MND = CalculateEnemyGCastleBaseStatus(GCastle.Status.MND);
+        AGI = CalculateEnemyGCastleBaseStatus(GCastle.Status.AGI);
+        TEC = CalculateEnemyGCastleBaseStatus(GCastle.Status.TEC);
+
+        //Debug.Log(GameData.GetInstance.GCastleData);
+        //Debug.Log(GameData.GetInstance.EnemyGCastleID);
+        //Debug.Log(GameData.GetInstance.GCastleData.GetGCastleData(GameData.GetInstance.EnemyGCastleID));
+        //Debug.Log(GameData.GetInstance.GCastleData.GetGCastleData(GameData.GetInstance.EnemyGCastleID).SceneType);
+
+        GameObject.Find("G Battle UI").GetComponent<UI_Scene_GCastleBattle>().InitializeEnemyInfo();
+
+        //AIProcMain();
+    }
+     public void NextAISet(long nowHP, long nowSP)
+    {
+        currentHP = nowHP;
+        currentSP = nowSP;
+        AIProcMain();
+    }
+    void AIProcMain() // 기본 행동에 대한 설정. 
+    {
+        StartCoroutine(AIMainThread());
+    }
+    /// <summary>
+    /// AIMainThread() : 스킬 로드와 장전을 하여 대기 할 수 있도록 함. 
+    /// </summary>
+    /// <returns></returns>
+    IEnumerator AIMainThread()
+    {
+        bool flag = true;
+        AITableSet();
+
+        if (aiTable == eAIType.AIType_UnKnown)//실제로는 AI 테이블이 로딩되어있는가를 체크하여 없으면 로딩. 
+        {//ai 테이블이 없는 경우 항상 공격만 하게 됨. 
+            flag = false;
+            nextSkill = eGCastleSkillType.Attack;
+        }
+        
+        
+        while (flag)
+        {
+            if (CheckSP())//SP 회복이 필요한지 확인
+            {
+                nextSkill = eGCastleSkillType.RecoverSP;
+                NextSkillSet(GetSkillRecoverSP());
+            }
+            else
+            {//SP회복 외의 다른 기술 사용
+                skillType = GetSkillType();
+
+                switch (skillType)//각각에 따른 스킬 사용함수. 
+                {
+                    case eGCastleSkillType.Attack:
+                        nextSkill = eGCastleSkillType.Attack;
+                        NextSkillSet(GetSkillAttack());
+                        break;
+                    case eGCastleSkillType.Buff:
+                        nextSkill = eGCastleSkillType.Buff;
+                        NextSkillSet(GetSkillBuff());                
+                        break;
+                        //TODO : 버프함수, 힐 관련 함수 내용 만들것.
+                    case eGCastleSkillType.Heal:
+                        nextSkill = eGCastleSkillType.Heal;
+                        NextSkillSet(GetSkillHeal());
+                        break;
+                }
+            }
+
+            if (nextSkill != eGCastleSkillType.GCastleSkillType_UnKnown)
+            {
+                flag = false;
+            }
+            yield return new WaitForFixedUpdate();
+        }
+    }
+
+    void NextSkillSet(int id)
+    {
+        m_Skill = gameData.GCastleData.SkillData.GetGCastleSkillData(id);
+        if (m_Skill == null)
+        {
+            m_Skill = gameData.GCastleData.SkillData.GetGCastleSkillData(1);
+        }
+    }
+    int GetSkillAttack()
+    {
+        eGCastleSkillSubType type = GetSkillCategoryAttack();
+        return GetUseSkill(type);
+    }
+
+    eGCastleSkillSubType GetSkillCategoryAttack()
+    {
+        eGCastleSkillSubType[] subType = new eGCastleSkillSubType[3];
+        int[] value = new int[3];
+
+        subType[0] = eGCastleSkillSubType.Attack;
+        value[0] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeAttack;
+        subType[1] = eGCastleSkillSubType.Reflect;
+        value[1] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeReflect;
+        subType[2] = eGCastleSkillSubType.Pierce;
+        value[2] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypePierce;
+
+        int rand_max = value[0] + value[1] + value[2];
+
+        int rand = Random.Range(0, rand_max);
+
+        int pos = 0;
+        for (pos = 0; pos < 3; pos++)
+        {
+            if (rand < value[pos])
+            {
+                return subType[pos];
+            }
+            rand -= value[pos];
+        }
+        return eGCastleSkillSubType.Attack;
+    }
+    /// <summary>
+    /// GetSkillType() : 기술 메인타입 설정. 
+    ///  Attack, Buff, Heal  타입 확률별 설정. 
+    /// </summary>
+    /// <returns></returns>
+    eGCastleSkillType GetSkillType()
+    {
+        eGCastleSkillType[] type = new eGCastleSkillType[3];
+        int[] value = new int[3];
+
+        type[0] = eGCastleSkillType.Attack;
+        value[0] = gameData.GCastleData.AIData.GetData(aiTableID).RateTypeAttack;
+        type[1] = eGCastleSkillType.Buff;
+        value[1] = gameData.GCastleData.AIData.GetData(aiTableID).RateTypeBuff;
+        type[2] = eGCastleSkillType.Heal;
+        value[2] = gameData.GCastleData.AIData.GetData(aiTableID).RateTypeHeal;
+
+        int rand_max = value[0] + value[1] + value[2];
+        int rand = Random.Range(0, rand_max);
+
+        int pos = 0;
+        for (pos = 0; pos < 3; pos++)
+        {
+            if (rand < value[pos])
+            {
+                return type[pos];
+            }
+            rand -= value[pos];
+        }
+
+        return eGCastleSkillType.Attack;
+    }
+    /// <summary>
+    /// AITableSet() 현재 HP 상황에 따라 동작종류 설정
+    /// 설탕? 1 
+    ///어떤 생각 전투하거나 판정 
+    ///
+    ///G 캐슬의 HP 판정 
+    ///HP가 100 ~ 61 % 생각 테? 블루 1 
+    ///HP가 60 ~ 31 % 생각 테? 블루 2 
+    ///HP가 30 % 이하 사고 테? 블루 3 
+    ///
+    ///※ 회복 스킬로 HP가 회복해도 생각 테이블 변경되지 않음. 
+    ///
+    ///@param GC_PLAYER * pPlay [in] 플레이어 ?? 造体 
+    ///
+    ///@return 생각 테? 불? 造体 
+    /// </summary>
+    void AITableSet()
+    {
+        if (currentHP <= lowestHP)
+        {
+            lowestHP = currentHP;
+        }
+        if (lowestHP <= maxHP * (30.0f / 100.0f))
+        {
+            aiTable = eAIType.Danger;
+        }
+        else if (lowestHP <= maxHP * (60.0f / 100.0f))
+        {
+            aiTable = eAIType.Trying;
+        }
+        else
+            aiTable = eAIType.Normal;
+
+        aiTableID = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).Battle.AI.GetAI(aiTable);
+    }
+    bool CheckSP()
+    {
+        int id = 0;
+        eGCastleSkillType type = eGCastleSkillType.Attack;
+
+        //Debug.Log(aiTableID);
+        //Debug.Log(gameData.GCastleData.AIData.GetData(aiTableID));
+        //Debug.Log(gameData.GCastleData.AIData);
+        //Debug.Log(gameData.GCastleData);
+        //Debug.Log(gameData);
+        while (true)//TODO : 적이 sP 회복스킬을 가지고 있는지 판정(실제 데이터가 있는지 없는 지 확인이 되지 않습니다. 임시로 때워둡니다. )
+        {
+
+            if (gameData.GCastleData.AIData.GetData(aiTableID).RateRecoverSP > 0.0f)
+                break;
+            else
+                return false;
+
+        }
+
+        if (currentSP > 0)//현재 sp가 0보다 큼
+        {
+            if (currentSP <= maxSP * (gameData.GCastleData.AIData.GetData(aiTableID).RemainSP / 100))
+            {
+                //스킬 사용
+                int randomRate = Random.Range(0, 100);
+                if (randomRate < gameData.GCastleData.AIData.GetData(aiTableID).RateRecoverSP)
+                {
+                    //랜덤 확률이 지정된 스킬 확률 범위 안에 들어오면 사용
+                    //Debug.Log("GCastle AI : Check SP  : Random : " + randomRate + " <  Rate : " + gameData.GCastleData.AIData.GetData(aiTableID).RateRecoverSP + " = Use SP Recover Skill");
+                    return true;
+                }
+                else
+                {
+                    //Debug.Log("GCastle AI : Check SP  : Random : " + randomRate + " >  Rate : " + gameData.GCastleData.AIData.GetData(aiTableID).RateRecoverSP + " = No use SP Recover Skill");
+                    return false;
+                }
+            }
+            else
+            {
+                //Debug.Log("GCastle AI : Check SP  : CurrentSP : " + currentSP + " >  SP Limit  : " + gameData.GCastleData.AIData.GetData(aiTableID).RemainSP + " = No use SP Recover Skill");
+                return false;
+            }
+        }
+        else
+        {
+            //Debug.Log("GCastle AI : Check SP  : NO SP = No use SP Recover Skill");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// GetSkillRecoverSP() SP회복 스킬의 레벨에 따른 사용확률, 
+    /// 레벨에따른 방어 퍼센테이지 설정. 
+    /// 
+    /// 설탕? 3 드 ??? 14? 18 번 
+    ///스킬 랭크 판정 
+    ///적의 G 캐슬이 소지 스킬에서 사용하는 스킬 랭크를 설정합니다 
+    ///스킬 랭크 1 ~ 5에 각각 사용 확률을 설정합니다 
+    ///※ 합계가 100 %가되도록 데 ??로 설정합니다 
+    ///※ 단 소지하지 않은 스킬 랭크는 제외하고 나머지 확률에서 판정 
+    ///
+    ///적의 G 캐슬의 나머지 SP 스킬 랭크에 설정된 스킬을 사용할 수 있는지 판정 
+    ///설정에서 스킬 랭크의 스킬을 사용할 수없는 경우 
+    ///설정에서 스킬 랭크를 하나 내려 다시 그 기술을 사용할 수 있는지 판정 
+    ///사용할 수 있기까지 스킬 랭크를 낮추고 판정 계속 
+    ///
+    ///@param GC_PLAYER * pPlay [in] 플레이어 ?? 造体 
+    ///@param GcNpcAi * pAi [in] 생각? 造体 (임시) 
+    ///
+    ///@return 사용하는 스킬 번호 
+    /// </summary>
+    /// <returns></returns>
+    int GetSkillRecoverSP()
+    {
+        return GetUseSkill(eGCastleSkillSubType.HealSP);
+    }
+    int GetUseSkill(eGCastleSkillSubType subType)
+    {
+        decimal hp_now = 0;
+        decimal hp_cost = 0;
+        decimal sp_now = 0;
+        decimal sp_cost = 0;
+        hp_now = currentHP;
+        sp_now = currentSP;
+
+        int[] rateVals = new int[(int)eGCastleSkillType.GCastleSkillType_EndofType];
+        eGCastleSkillRank[] rateRanks = new eGCastleSkillRank[(int)eGCastleSkillRank.GCastleSkillRankType_EndofType];
+        int[] rateIDs = new int[(int)eGCastleSkillRank.GCastleSkillRankType_EndofType];
+        int ratePos = 0;
+
+        int rand_max = 0;
+        eGCastleSkillRank rank;
+        int id = 0;
+
+        bool usable = false;
+
+        for (rank = eGCastleSkillRank.Rank1; rank < eGCastleSkillRank.GCastleSkillRankType_EndofType; rank++)
+        {
+            skillType = eGCastleSkillType.Attack;
+            while (true)
+            {
+                id = gameData.GCastleData.SkillData.GetGCastleSkillID(skillType, subType, rank);
+                //Debug.Log("Before : " + skillType);
+                if (id > 0)//스킬이 존재하는가
+                {
+                    //db에서 스킬데이타 가져옴
+                    hp_cost = gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostHP;//사용 hp cost
+                    sp_cost = gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostSP;//sp cost
+                    //Debug.Log("cost sp : " + sp_cost + " , hp : " + hp_cost);
+                    usable = false;
+
+                    if (subType == eGCastleSkillSubType.HealSP)
+                    {
+                        if (hp_now > hp_cost)
+                            usable = true;
+                    }
+                    else
+                    {
+                        if (sp_now >= sp_cost)
+                            usable = true;
+                    }
+                    if (usable)
+                    {
+                        rateVals[ratePos] = gameData.GCastleData.AIData.GetData(enemyCastle.Battle.AI.GetAI(aiTable)).GetRate_SkillRank((int)rank) ;//aidml 스킬랭크를 가져옴
+                        rateRanks[ratePos] = rank;
+                        rateIDs[ratePos] = id;
+                        rand_max += rateVals[ratePos];
+                        //Debug.Log("GCastle Skill Usable : " + gameData.GCastleData.SkillData.GetGCastleSkillData(id).Name +", "+ gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostHP +", "+ gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostSP + ", " + ratePos + ", " +  rateVals[ratePos] );
+                        ratePos++;
+                        break;
+                    }
+                    else
+                    {
+                        //Debug.Log("GCastle Skill No Usable : " + gameData.GCastleData.SkillData.GetGCastleSkillData(id).Name + ", " + gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostHP + ", " + gameData.GCastleData.SkillData.GetGCastleSkillData(id).CostSP + ", " + ratePos + ", " + rateVals[ratePos]);
+                    }
+                }
+                skillType++;
+                //Debug.Log("After : " + skillType);
+                if (skillType >= eGCastleSkillType.GCastleSkillType_EndofType)
+                    break;
+            }
+        }
+
+        if (rand_max <= 0)
+            return 0;//사용불가
+
+        int rand = Random.Range(0, rand_max);
+        int pos = 0;
+        for (pos = 0; pos < ratePos; pos++)
+        {
+            //db에서 스킬 가져옴 
+            if (rand < rateVals[pos])
+            {
+                //사용될 스킬을 db에서 가져옴
+                Debug.Log("GCastle Skill Selected : " + gameData.GCastleData.SkillData.GetGCastleSkillData(rateIDs[pos]).Name);
+                for (eGCastleSkillType j = eGCastleSkillType.GCastleSkillType_UnKnown; j < eGCastleSkillType.GCastleSkillType_EndofType; j++)
+                {
+                    //캐릭터의 개방된 스킬 중 해당하는 리스트가 있는지 검사. 
+                    int length = GetCategoryCount(j);
+                    for (int i = 0; i < length; i++)
+                    {
+                        if (rateIDs[pos] == OpenSkillIDs[i])
+                            return rateIDs[pos];
+                        else if (i == length - 1)
+                        {
+                            return 0;
+                        }
+                    }
+                }
+                //gameData.GCastleData.SkillData.GetGCastleSkillData(openedSkills[i]);
+                return rateIDs[pos];
+            }
+            rand -= rateVals[pos];
+        }
+        return 0;
+    }
+
+
+    int GetSkillHeal()
+    {
+        eGCastleSkillSubType type = GetSkillCategoryHeal();
+        return GetUseSkill(type);
+    }
+    eGCastleSkillSubType GetSkillCategoryHeal()
+    {
+        int retVal = 0;
+        eGCastleSkillSubType[] cate = new eGCastleSkillSubType[2];
+        int[] value = new int[2];
+
+        cate[0] = eGCastleSkillSubType.HealHP;
+        value[0] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeHeal;
+        cate[1] = eGCastleSkillSubType.AbsorbHP;
+        value[1] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeAbsorbHP;
+
+        int rand_max = value[0] + value[1];
+        int rand = Random.Range(0, rand_max);
+
+        int pos = 0;
+        for (pos = 0; pos < 2; pos++)
+        {
+            if(rand < value[pos])
+                return cate[pos];
+            rand -= value[pos];
+        }
+        return eGCastleSkillSubType.HealHP;
+    }
+
+    int GetSkillBuff()
+    {
+        eGCastleSkillSubType type = GetSkillCategoryBuff();
+        return GetUseSkill(type);
+    }
+    eGCastleSkillSubType GetSkillCategoryBuff()
+    {
+        eGCastleSkillSubType[] cate = new eGCastleSkillSubType[3];
+        int[] value = new int[3];
+        cate[0] = eGCastleSkillSubType.Buff;
+        value[0] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeBuff;//rateCateForce
+        cate[1] = eGCastleSkillSubType.AbsorbSP;
+        value[1] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeAbsorbSP;//rateCateAbsSP;
+        cate[2] = eGCastleSkillSubType.FastAttack;
+        value[2] = gameData.GCastleData.AIData.GetData(aiTableID).RateSubTypeFastAttack;//rateCateFastAttack;
+
+        if (CheckEnhenceMax())//한계 강회된 경우 강회 제외
+        {
+            value[0] = 0;
+        }
+
+        int rand_max = value[0] + value[1] + value[2];
+        int rand = Random.Range(0, rand_max);
+        int pos = 0;
+
+        for (pos = 0; pos < 3; pos++)
+        {
+            if (rand < value[pos])
+            {
+                return cate[pos];
+            }
+            rand -= value[pos];
+        }
+        return eGCastleSkillSubType.Buff;
+    }
+
+    public GCastleSceneData GetCommentData(int first, int second)
+    {
+        GCastleSceneData retVal = null;
+        if (first == 1 && second == 1)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData11;
+        else if (first == 1 && second == 2)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData12;
+        else if (first == 2 && second == 1)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData21;
+        else if (first == 2 && second == 2)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData22;
+        else if (first == 3 && second == 1)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData31;
+        else if (first == 3 && second == 2)
+            retVal = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).CommentData32;
+
+        return retVal;
+    }
+
+    public string GetNameEffectID()
+    {
+        return gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).NameEffectID.ToString("00");
+    }
+}
+
+ 

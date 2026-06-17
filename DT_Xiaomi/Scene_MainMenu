@@ -1,0 +1,252 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class Scene_MainMenu : MonoBehaviour {
+    public dfLabel lbTitle;
+    public dfButton btBack;
+    public dfPanel pnMenu;
+    public dfPanel pnInfoMenu;
+    public dfButton[] btMain;
+    public dfButton btScenario;
+    public dfButton btCredit;
+    public dfButton btTowerInfo;
+    public dfButton btEnemyInfo;
+
+    public dfPanel pnWarningPopup;
+    public dfButton btWarningOK;
+    public dfButton btWarningCancel;
+    public dfLabel lbWarningTitle;
+    public dfLabel lbWarningText;
+
+    const string WELCOME = "Welcome! ";
+    GameContext gc;
+    LocalizedStringData local;
+    Vector3[] BtYPos = new Vector3[5];
+
+    //void OnGUI()
+    //{
+    //    GUI.Label(new Rect(0, 0, 100, 50), AndroidManager.GetInstance().strLog);
+    //}
+    void Awake()
+    {
+        gc = GameContext.GetInstance;
+        local = gc.localizedStringData;
+        gc.sceneMover.MainCameraChecker();
+        gc.sceneMover.BackgroundVisible(true);
+        GameContext.GetInstance.inputHandler.ClearBackKeyEvent();
+        gc.inputHandler.SetDelegateToBackKey(this.BackKeyEvent);
+        Time.timeScale = 1f;
+
+        for (int i = 0; i < 5; i++)
+        {
+            BtYPos[i] = btMain[i].Position;
+        }
+        SetLocalString();
+
+        pnMenu.IsVisible = true;
+        pnInfoMenu.IsVisible = false;
+        btBack.IsVisible = false;
+
+        CheckResumeData();
+
+        btMain[0].Click += new MouseEventHandler(btMain0_Click);
+        btMain[1].Click += new MouseEventHandler(btMain1_Click);
+        btMain[2].Click += new MouseEventHandler(btMain2_Click);
+        btMain[3].Click += new MouseEventHandler(btMain3_Click);
+        btMain[4].Click += new MouseEventHandler(btMain4_Click);
+
+        btBack.Click += new MouseEventHandler(btBack_Click);
+        btScenario.Click += new MouseEventHandler(btScenario_Click);
+        btCredit.Click += new MouseEventHandler(btCredit_Click);
+        btTowerInfo.Click += new MouseEventHandler(btTowerInfo_Click);
+        btEnemyInfo.Click += new MouseEventHandler(btEnemyInfo_Click);
+
+        btWarningOK.Click += new MouseEventHandler(btWarningOK_Click);
+        btWarningCancel.Click += new MouseEventHandler(btWarningCancel_Click);
+    }
+
+    void btTowerInfo_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.sceneMover.GotoTowerInfo();
+        Destroy(this.gameObject);
+    }
+    void btEnemyInfo_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.sceneMover.GotoEnemyInfo();
+        Destroy(this.gameObject);
+    }
+
+    void btCredit_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.sceneMover.GotoCredit();
+        Destroy(this.gameObject);
+    }
+
+    void btScenario_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.inputHandler.SetupPreviousEvent = this.BackBtn_Clicked;
+        gc.sceneMover.PrevSceneRoot = this.gameObject;
+        gc.sceneMover.SetPrevSceneRootActive(false);
+        GameContext.GetInstance.sceneMover.GotoScenario();
+    }
+
+    void btBack_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        BackBtn_Clicked();
+    }
+       
+    public void BackBtn_Clicked()
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.inputHandler.ClearBackKeyEvent();
+        gc.inputHandler.SetDelegateToBackKey(this.BackKeyEvent);
+        lbTitle.Text = strMainMenu;
+        pnMenu.IsVisible = true;
+        pnInfoMenu.IsVisible = false;
+        btBack.IsVisible = false;
+    }
+
+    void btWarningCancel_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("in OnNo_warningClicked()");
+        WarningCancel();
+    }
+    void WarningCancel()
+    {
+        pnWarningPopup.IsVisible = false;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+        GameContext.GetInstance.inputHandler.ClearBackKeyEvent();
+        gc.inputHandler.SetDelegateToBackKey(this.BackKeyEvent);
+    }
+
+    void btWarningOK_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("in btWarningOK_Click()");
+        pnWarningPopup.IsVisible = false;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        gc.gameData.DeleteCheckpoint();
+        gc.gameData.Save();
+        gc.sceneMover.GotoThemeSelect();
+        Destroy(this.gameObject);
+    }
+
+    void btMain0_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("MainMenu : Resume");
+        gc.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.gameData.LoadCheckpoint();
+        Destroy(this.gameObject);
+    }
+    void btMain1_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("MainMenu : GameStart");
+        gc.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        if (gc.gameData.CheckpointAvailable() > 0)
+        {
+            pnWarningPopup.IsVisible = true;
+            GameContext.GetInstance.inputHandler.ClearBackKeyEvent();
+            gc.inputHandler.SetDelegateToBackKey(this.WarningCancel);
+        }
+        else
+        {
+            gc.sceneMover.GotoThemeSelect();
+            Destroy(this.gameObject);
+        }
+    }
+    void btMain2_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("MainMenu : SpecialUpgrade");
+        gc.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+
+        gc.inputHandler.SetupPreviousEvent = this.BackKeyEvent;
+        gc.sceneMover.PrevSceneRoot = this.gameObject;
+        gc.sceneMover.SetPrevSceneRootActive(false);
+        gc.sceneMover.GotoSpecialUpgrade();
+    }
+    void btMain3_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.inputHandler.ClearBackKeyEvent();
+        gc.inputHandler.SetDelegateToBackKey(this.BackBtn_Clicked);
+        lbTitle.Text = strInfoMenu;
+        pnMenu.IsVisible = false;
+        pnInfoMenu.IsVisible = true;
+        btBack.IsVisible = true;
+    }
+    void btMain4_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("MainMenu : Option");
+        gc.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        gc.inputHandler.SetupPreviousEvent = this.BackKeyEvent;
+        gc.sceneMover.PrevSceneRoot = this.gameObject;
+        gc.sceneMover.SetPrevSceneRootActive(false);
+        gc.sceneMover.GotoOption();
+    }
+
+    private void BackKeyEvent()
+    {
+        Debug.Log("in BackKeyEvent()");
+        gc.inputHandler.ClearBackKeyEvent();
+        gc.sceneMover.GotoTitle();
+        Destroy(this.gameObject);
+    }
+
+    public void CheckResumeData()
+    {
+        Debug.Log("in CheckResumeData()");
+
+        if (gc.gameData.CheckpointAvailable() > 0)
+        {
+            if (btMain[0].IsVisible == false)
+            {
+
+                //버튼위치조정.
+                for (int i = 0; i < 5; i++)
+                {
+                    btMain[i].Position = BtYPos[i];
+                }
+                btMain[0].IsVisible = true;
+            }
+        }
+        else
+        {
+            if (btMain[0].IsVisible == true)
+            {
+                btMain[0].IsVisible = false;
+
+                //버튼위치조정.
+                for (int i = 0; i < 4; i++)
+                {
+                    btMain[i+1].Position = BtYPos[i];
+                }
+            }
+        }
+    }
+
+    string strMainMenu = "";
+    string strInfoMenu = "";
+    public void SetLocalString()
+    {
+        strMainMenu = local.GetString(2401);
+        lbTitle.Text = strMainMenu;
+        
+        btMain[0].Text = local.GetString(2498);
+        btMain[1].Text = local.GetString(2402);
+        btMain[2].Text = local.GetString(2403);
+        btMain[3].Text = local.GetString(2404);
+        btMain[4].Text = local.GetString(2405);
+
+        strInfoMenu = local.GetString(2404);
+        btScenario.Text = local.GetString(2413);
+        btCredit.Text = local.GetString(2414);
+        btTowerInfo.Text = local.GetString(2409);
+        btEnemyInfo.Text = local.GetString(2410);
+        lbWarningText.Text = local.GetString(1017);
+        btWarningOK.Text = local.GetString(2503);
+        btWarningCancel.Text = local.GetString(2504);
+    }
+}

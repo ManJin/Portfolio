@@ -1,0 +1,386 @@
+﻿
+using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+
+public class Golem : EnemyBase
+{
+    #region Variables
+
+    public enum TargetRange
+    {
+        FIRST = 0,
+        SECOND,
+        THIRD,
+    }
+
+    public int AttackRow
+    {
+        set 
+        {
+            //Debug.Log("ROW : " + _attackrow + " ; " + value);
+            if (_attackrow != value)
+                _atkrowImprove = true;
+            else
+                _atkrowImprove = false;
+            _attackrow = value; 
+        }
+        get { return _attackrow; }
+    }
+
+    public uint Poolid = 0;
+    public uint Golemid = 0;
+    public int AttackColum = 0;
+    public bool canMove = false;
+
+    public bool[,] Targets;
+
+    public TargetRange range = TargetRange.FIRST;
+    public BoxCollider[] GolemHitCollider = null;
+    public BoxCollider LeftHandCollider = null;
+    public BoxCollider RightHandCollider = null;
+
+    public SortedDictionary<string, string> animationDic = new SortedDictionary<string, string>();
+    public SortedDictionary<string, string[]> patternDic = new SortedDictionary<string, string[]>();
+    public SortedDictionary<string, string[]> aiDic = new SortedDictionary<string, string[]>();
+    public SortedDictionary<string, float> statusDic = new SortedDictionary<string, float>();
+    public SortedDictionary<string, string> AnimToEventDic = new SortedDictionary<string, string>();
+
+    public List<Transform> HitLocationTr = new List<Transform>();
+    [HideInInspector]
+    public Dictionary<string, InGameLockOn> HitTargetUI = new Dictionary<string, InGameLockOn>();
+
+    Hero hero = null;
+    float charRad = 0.0f;
+    float _1stRadian = 0.0f;
+    float _2ndRadian = 0.0f;
+
+    int _attackrow = 0;
+    bool _atkrowImprove = false;
+
+    public bool[] PreTargets = new bool[6];
+    public bool TargetChanged = false;
+    public float AtkConditionTime = 0.0f;
+    
+    #endregion
+
+    #region MonobehaviourMethod
+    protected override void Start()
+    {
+        base.Start();
+        for (int i = 0; i < PreTargets.Length; i++)
+            PreTargets[i] = false;
+
+        Setting.GolemAiInit(Golemid);
+        SettingGolem();
+        DegreeToRadian();
+        SetGolemDamageAreaUI();
+        hero = StageAssetManager.GetInstance.HeroClass;
+    }
+    void Update()
+    {
+        //GetTargetRange();
+    }
+    #endregion
+    #region PublicMethod
+    public bool GetAtkRowImprove()
+    {
+        return _atkrowImprove;
+    }
+
+    public BattleStat GetBattleStatusInfo()
+    {
+        return myBattleStat;
+    }
+    public void Buff_Movement()
+    {
+        myBattleStat.movSpeed *= 1.4f;
+    }
+    public void Buff_AttackPower()
+    {
+        myBattleStat.attack *= 1.4f;
+    }
+    public static float Angle(Vector3 v0, Vector3 v1, Vector3 up)
+    {
+        return Vector3.Angle(v0, v1) * (Vector3.Dot(up, Vector3.Cross(v0, v1)) > 0.0f ? 1.0f : -1.0f);
+    }
+    public bool FindEnemyLeft()
+    {
+        StageAssetManager sm = StageAssetManager.GetInstance;
+        Vector3 forward = new Vector3(myTrans.forward.x, 0, myTrans.forward.z);
+        Vector3 direction = new Vector3(sm.HeroClass.GetTransform().position.x, 0, sm.HeroClass.GetTransform().position.z) - new Vector3(myTrans.position.x, 0, myTrans.position.z);
+
+        Vector3 crossValue = Vector3.Cross(forward, direction);
+
+        if (crossValue.y > 0)
+            return true;
+        else
+            return false;
+    }
+    public TargetRange GetTargetRange()
+    {
+        Vector3 heroLocation = hero.GetTransform().position;
+        Vector3 dir = (heroLocation - myTrans.position).normalized;
+
+        charDeg = Vector3.Angle(myTrans.forward, dir);
+        //charRad = Mathf.Atan2(heroLocation.x, heroLocation.z);
+        charRad = charDeg * Mathf.Deg2Rad;
+        charRad = Mathf.Abs(charRad);
+
+        if (charRad >= 0.0f && charRad < _1stRadian)
+        {
+            return range = TargetRange.FIRST;
+        }
+        else if (charRad >= _1stRadian && charRad < _2ndRadian)
+        {
+            return range = TargetRange.SECOND;
+        }
+        else
+        {
+            return range = TargetRange.THIRD;
+        }
+    }
+
+    public void SetGolemHitTarget()
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            GolemHitCollider[i].enabled = Targets[AttackColum, i];
+        }
+    }
+
+    public float GetRotationSpeed()
+    {
+        return myBattleStat.movSpeed;
+    }
+    
+    public float GetRangeRadian(int targetRange)
+    {
+        if (targetRange == 1)
+            return _1stRadian;
+        else if (targetRange == 2)
+            return _2ndRadian;
+        else
+            return 0.0f;
+    }
+
+
+    #endregion
+    #region Methods
+    void DegreeToRadian()
+    {
+        _1stRadian =  myBattleStat._1stRange * Mathf.Deg2Rad;
+        _2ndRadian = myBattleStat._2ndRange * Mathf.Deg2Rad;
+    }
+
+    float charDeg = 0.0f;
+
+    void SetGolemDamageAreaUI()
+    {
+        StageAssetManager sm = StageAssetManager.GetInstance;
+        int index = 1;
+        foreach (BoxCollider col in GolemHitCollider)
+        {
+            GameObject LockOnTargetObj = NGUITools.AddChild(sm.IngameStatui.gameObject, Resources.Load("Prefabs/RockOn") as GameObject);
+            LockOnTargetObj.name = "LockOn" + (index++).ToString("00");
+            InGameLockOn lockon = LockOnTargetObj.GetComponent<InGameLockOn>();
+            lockon.RegisterTarget(col.transform, this);
+            HitTargetUI.Add(col.transform.name, lockon);
+        }
+    }
+
+    void SettingGolem()
+    {
+        float tempVal = 0.0f;
+        if(Setting.statusDic.TryGetValue("Level", out tempVal))
+            int.TryParse(tempVal.ToString(), out myStat.level);
+        Setting.statusDic.TryGetValue("Power", out myStat.power);
+        Setting.statusDic.TryGetValue("Technique", out myStat.technique);
+        Setting.statusDic.TryGetValue("Mental", out myStat.mental);
+        Setting.statusDic.TryGetValue("Vital", out myStat.vital);
+        Setting.statusDic.TryGetValue("Life", out myBattleStat.lifeGuage);
+        Setting.statusDic.TryGetValue("Attack", out myBattleStat.attack);
+        Setting.statusDic.TryGetValue("MoveSpeed", out myBattleStat.movSpeed);
+        Setting.statusDic.TryGetValue("1stRange", out myBattleStat._1stRange);
+        Setting.statusDic.TryGetValue("2ndRange", out myBattleStat._2ndRange);
+        animationDic = Setting.animationDic;
+        patternDic = Setting.patternDic;
+        aiDic = Setting.aiDic;
+        statusDic = Setting.statusDic;
+    }
+
+    #endregion
+
+    #region Debug
+ #if UNITY_EDITOR
+    //void OnGUI()
+    //{
+    //    if (ComponentSwitch.QA_Version)
+    //    {
+    //        GUIStyle style = new GUIStyle();
+    //        style.fontSize = 30;
+    //        style.normal.textColor = Color.white;
+    //        style.alignment = TextAnchor.MiddleRight;
+            
+    //        GUI.TextField(new Rect(Screen.width - 220, 0, 200, 30), "GLife:" + myBattleStat.lifeGuage.ToString("####0.0#"), style);
+    //        GUI.TextField(new Rect(Screen.width - 220, 30, 200, 30), "GState:" + myState.ToString(), style);
+    //        GUI.TextField(new Rect(Screen.width - 220, 60, 200, 30), "Range:" + range.ToString(), style);
+    //        style.normal.textColor = Color.red;
+    //        //GUI.TextField(new Rect(Screen.width - 220, 90, 200, 30), "AI :" + StageAssetManager.GetInstance.tempAI, style);
+    //    }
+    //}
+#endif
+    #endregion
+}
+
+public class GolemSetting
+{
+    public readonly string filePath = "EnemyData/";
+    public readonly string expend = ".csv";
+    public string content;
+
+    public ObjectFactory.EnemyType EnemyType = ObjectFactory.EnemyType.Temple;
+
+    public SortedDictionary<string, string> animationDic = new SortedDictionary<string,string>();
+    public SortedDictionary<string, string[]> patternDic = new SortedDictionary<string, string[]>();
+    public SortedDictionary<string, string[]> aiDic = new SortedDictionary<string, string[]>();
+    public SortedDictionary<string, float> statusDic = new SortedDictionary<string, float>();
+
+    public GolemSetting()
+    {
+        if (LoadAniList())
+            Debug.Log("Golem Animation List Loaded");
+        else
+            Debug.Log("Golem Animation List Failed");
+    }
+
+    public void GolemAiInit(uint golemid)
+    {
+        EnemyType = (ObjectFactory.EnemyType)golemid;
+
+        if (LoadPattern())
+            Debug.Log(EnemyType.ToString() + " : Pattern Loaded");
+        else
+            Debug.Log(EnemyType.ToString() + " : Pattern Load Failed");
+
+        if (LoadAI())
+            Debug.Log(EnemyType.ToString() + " : AI Loaded");
+        else
+            Debug.Log(EnemyType.ToString() + " : AI Load Failed");
+
+        if (LoadStatus())
+            Debug.Log(EnemyType.ToString() + " : Status Loaded");
+        else
+            Debug.Log(EnemyType.ToString() + " : Status Load Failed");
+    }
+    public bool LoadAniList()
+    {
+        CSVLoader loader = new CSVLoader("AnimationList" + expend);
+        if (loader != null)
+        {
+            string tempVal = "";
+            loader.NextLine();
+
+            for (int i = 1; i < loader.LineMaxNum; i++)
+            {
+                string tempKey = loader.GetString();
+                
+                if (!animationDic.TryGetValue(tempKey, out tempVal))
+                {
+                    tempVal = loader.GetString();
+                    animationDic.Add(tempKey, tempVal);
+                }
+                loader.NextLine();
+            }
+            return true;
+        }
+        else
+            return false;
+    }
+
+    public bool LoadAI()
+    {
+        CSVLoader loader = new CSVLoader(filePath + EnemyType.ToString() + "/AI" + expend);
+        if (loader != null)
+        {
+            string[] tempVal;
+            loader.NextLine();
+            for (int i = 1; i < loader.LineMaxNum; i++)
+            {
+                string tempKey = loader.GetString();
+                if (!aiDic.TryGetValue(tempKey, out tempVal))
+                {
+                    tempVal = new string[loader.GetLineColumnCount() - 1];
+
+                    for (int j = 0; j < loader.GetLineColumnCount() - 1; j++)
+                    {
+                        tempVal[j] = loader.GetString();
+                    }
+                    aiDic.Add(tempKey, tempVal);
+                }
+                loader.NextLine();
+            }
+            return true;
+        }
+        else
+            return false;
+    }
+
+    public bool LoadPattern()
+    {
+        CSVLoader loader = new CSVLoader(filePath + EnemyType.ToString() + "/Pattern" + expend);
+        string tempkey ="";
+        string[] tempVal;
+        if (loader != null)
+        {
+            loader.NextLine();
+            for(int i = 1 ; i < loader.LineMaxNum; i++)
+            {
+                tempkey = loader.GetString();
+                if(!patternDic.TryGetValue(tempkey, out tempVal))
+                {
+                    tempVal = new string[loader.GetLineColumnCount() - 1];
+
+                    for (int j = 0; j < loader.GetLineColumnCount() - 1; j++)
+                    {
+                        tempVal[j] = loader.GetString();
+                    }
+                    patternDic.Add(tempkey, tempVal);
+                }
+                
+                loader.NextLine();
+            }
+            return true;
+        }
+        else
+            return false;
+    }
+
+    public bool LoadStatus()
+    {
+        CSVLoader loader = new CSVLoader(filePath + EnemyType.ToString() + "/Status" + expend);
+        if (loader != null)
+        {
+            string tempKey = "";
+            float tempVal = 0;
+            loader.NextLine();
+
+            for (int i = 1; i < loader.LineMaxNum; i++)
+            {
+                tempKey = loader.GetString();
+
+                if (!statusDic.TryGetValue(tempKey, out tempVal))
+                {
+                    tempVal = loader.GetFloat();
+                    statusDic.Add(tempKey, tempVal);
+                }
+                loader.NextLine();
+            }
+
+            return true;
+        }
+        else
+            return false;
+    }
+}

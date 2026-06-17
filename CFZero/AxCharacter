@@ -1,0 +1,3600 @@
+﻿using CFA.Shared.Define;
+using CFA.Shared.Enum;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using CFA.World;
+using System;
+using CFA.Camera;
+using Common.Shared.Enum;
+using CFBR.Shared.Enum;
+using CFW.Effect;
+using CFW.DataTable;
+using FootSoundType = CFA.Shared.Enum.FootSoundType;
+using MaterialType = CFW.Physics.MaterialType;
+using Common.System;
+using Common.System.Audio;
+using CFW.Effect.MaterialEffect;
+/// <summary>
+/// pv, qv, aimik, 3가지만 내꺼다. 
+/// </summary>
+public class AxCharacter : MonoBehaviour
+{
+    [SerializeField]
+    private AxPV pv = null;
+    [SerializeField]
+    private AxQV qv = null;
+
+    //[SerializeField]//0, 1, 3, 4번 슬롯의 무기만 들어감
+    //AxWeapon[] arrayWeapon = new AxWeapon[(int)WeaponSlot.EndofType];
+
+    //[SerializeField]
+    //LinkedList<AxWeapon> throwWeapon = new LinkedList<AxWeapon>();
+
+    [SerializeField]
+    AxSkillItem currentSkill = null;
+    //[SerializeField]
+    //AxSkillItem[] arraySkill = new AxSkillItem[3];
+
+    [SerializeField]
+    AxConsumable[] arrayConsumable = new AxConsumable[2];
+
+    [SerializeField]
+    AXProperty axProperty = null;
+
+    bool isCameraTargetedCharacter = true;
+    BRCharacterDissolveEffectPlayer _dieEffect = null;
+
+    [SerializeField]
+    private AudioSource _footSoundLeft;
+    [SerializeField]
+    private AudioSource _footSoundRight;
+
+    [SerializeField]
+    private AudioSource _slidingStartAudio;
+
+    [SerializeField]
+    private AudioSource _landingSound;
+
+    [SerializeField]
+    private AudioSource _gearSoundAudio;
+
+    [SerializeField]
+    private AudioSource _windGustAudio;
+
+    [SerializeField]
+    private BRAudioAnimator _slidingLoopAudio;
+
+    private BRAudioEvent[] _audioEvent;
+
+    AxJetPack _jetpack = null;
+    AxZipLineTool _ziplinetool = null;
+
+    public Action A_Throw;//던지는타이밍에 불러오는 액션
+    public Action A_Punch;//주먹치는타이밍에 불러오는 액션
+
+    string Name = string.Empty;
+
+    private bool _AniLengthTest = true;
+
+	private Rigidbody _rigidbody;
+
+    [SerializeField]
+    private Animator _dummyAnimator = null;
+
+    private void Awake()
+    {
+        pv = GetComponentInChildren<AxPV>();
+        qv = GetComponentInChildren<AxQV>();
+
+	    _rigidbody = gameObject.GetComponent<Rigidbody>();
+	    if ( _rigidbody == null )
+	    {
+		    _rigidbody = gameObject.AddComponent<Rigidbody>();
+	    }
+
+	    _rigidbody.isKinematic = true;
+    }
+    
+    GUIStyle style = null;
+
+    #region 캐릭터 초기화 / 추가
+    /// <summary>
+    /// 로드 다 되고 난다음에 불러줘양..
+    /// </summary>
+    /// <param name="hand">1인칭 손</param>
+    /// <param name="baseWeapon">기본무기(주먹?)</param>
+    /// <param name="body">3인칭 바디</param>
+    /// <param name="qvWeapon">3인칭 무기(주먹?)</param>
+    public void Initialize(AxPVHand hand, AxQVBody body, string name, bool isUI = false)
+    {
+        if (!isUI)
+        {
+            if (pv == null || qv == null) return;
+
+            Name = name;
+
+            if (hand != null)
+                pv.SetPVHand(hand);
+
+                pv.InitializeEffectEventPlayer();
+
+            if (body != null)
+            {
+                qv.SetBody(body);
+                _dieEffect = body.GetComponent<BRCharacterDissolveEffectPlayer>();
+            }
+
+            pv.ShowHand(!isUI);
+            qv.ShowBody(isUI);
+
+            InitializeAnimator();
+
+            StartCoroutine("LoadItem");
+
+            StartCoroutine("LoadJetPack");
+
+            StartCoroutine("LoadZipLineTool");
+            //여기에 아이템 주사기, PDA 두개 로드해서 들고 있을것.... 
+        }
+        else
+        {
+            //Debug.LogError("UI INITIALIZE");
+            if (qv == null) return;
+            qv.SetBody(body);
+            EnableAim(false);
+            qv.SetLobbyAnimator();
+            qv.InitializeUIDictionary();
+            //body.GetComponent<CFA.World.Hit.AxHitBox>().EnableCollider(false);
+        }
+
+        _audioEvent = transform.GetComponentsInChildren<BRAudioEvent>();
+        if(_audioEvent != null && _audioEvent.Length > 0)
+            _audioEvent[0].transform.parent.parent = transform; // 컬링시에 캐릭터 모델이 꺼지기 때문에 사운드 transform을 상단으로 올림
+
+        _windGustAudio.enabled = false;
+    }
+
+    public void UIAnimatorInitialize()
+    {
+        if (qv == null) return;
+        qv.InitializeUIDictionary();
+    }
+    IEnumerator LoadZipLineTool()
+    {
+        string zipLineToolPath = CharacterPath.path_ZipLineTool;
+        var request = Resources.LoadAsync<GameObject>(zipLineToolPath);
+        while (!request.isDone)
+            yield return null;
+        GameObject go = (GameObject)Instantiate(request.asset);
+        _ziplinetool = go.GetComponent<AxZipLineTool>();
+        //AttachQVMaterialFxAttacher(go.GetComponentInChildren<MaterialEffectAttacher>());
+
+        AttachZipLineTool();
+        ShowZipLineTool(false);
+    }
+    public void AttachZipLineTool ()
+    {
+        if (qv == null || _ziplinetool == null)
+            return;
+        qv.AttachZipLineTool(_ziplinetool.transform);
+    }
+    public void ShowZipLineTool(bool isShow)
+    {
+        if (_ziplinetool == null)
+            return;
+        if (isCameraTargetedCharacter)
+            isShow = false;
+        _ziplinetool.ShowObject(isShow);
+    }
+    IEnumerator LoadJetPack()
+    {
+        string jetpackPath = CharacterPath.path_JetPack;
+        var request = Resources.LoadAsync<GameObject>(jetpackPath);
+        while (!request.isDone)
+            yield return null;
+        GameObject go = (GameObject)Instantiate(request.asset);
+        _jetpack = go.GetComponent<AxJetPack>();
+        
+
+
+        AttachJetPack();
+        ShowJetPack(false);
+
+    }
+    public void AttachJetPack()
+    {
+        if (qv == null || _jetpack == null)
+            return;
+        qv.AttachJetPack(_jetpack.transform);
+    }
+    public void DettachJetPack()
+    {
+        if (qv == null || _jetpack == null)
+            return;
+        qv.DettachJetPack(_jetpack.transform);
+    }
+    public void ShowJetPack(bool isShow)
+    {
+        if (_jetpack == null)
+            return;
+        _jetpack.ShowObject(isShow);
+    }
+    public void DestroyJetPack()
+    {
+        if (_jetpack == null)
+            return;
+        _jetpack.DestroySelf();
+    }
+    IEnumerator LoadItem()
+    {
+        var syringItem = DataTableManager.BR_Ingame_ItemTable.GetItem(2601001);
+        string syringeName = DataTableManager.AX_AnimationTable.GetNodeName(2601001);
+
+        var pdaItem = DataTableManager.BR_Ingame_ItemTable.GetItem(2601003);
+        string pdaName = DataTableManager.AX_AnimationTable.GetNodeName(2601003);
+
+        string syringBundleName = DataTableManager.ItemTable.GetItemBundleName(syringItem.Index);
+
+        UnityEngine.Assertions.Assert.IsTrue(syringBundleName.HasContent());
+
+        var request = ResourceLoader.Instance.Load<GameObject>(syringBundleName, syringItem.InGameModelPV);
+
+        //Debug.LogError("Load : " + syringItem.InGameModelPV);
+        while (!request.IsComplete)
+            yield return null;
+
+	    GameObject go = (GameObject) request.LoadedAsset;
+        AxPVConsumable syringePV = go.GetComponent<AxPVConsumable>();
+        syringePV.name = syringeName;
+        AttachPVMaterialFxAttacher(syringePV.GetComponent<MaterialEffectAttacher>());
+
+        request = ResourceLoader.Instance.Load<GameObject>(syringBundleName, syringItem.InGameModelQV);
+        while (!request.IsComplete)
+            yield return null;
+
+	    go = (GameObject) request.LoadedAsset;
+        AxQVConsumable syringeQV = go.GetComponent<AxQVConsumable>();
+        syringeQV.name = syringeName;
+        AttachQVMaterialFxAttacher(syringeQV.GetComponent<MaterialEffectAttacher>());
+
+        string pdaBundleName = DataTableManager.ItemTable.GetItemBundleName(pdaItem.Index);
+
+        UnityEngine.Assertions.Assert.IsTrue(pdaBundleName.HasContent());
+
+        request = ResourceLoader.Instance.Load<GameObject>(pdaBundleName, pdaItem.InGameModelPV);
+        while (!request.IsComplete)
+            yield return null;
+
+	    go = (GameObject) request.LoadedAsset;
+        AxPVConsumable pdaPV = go.GetComponent<AxPVConsumable>();
+        pdaPV.name = pdaName;
+        AttachPVMaterialFxAttacher(pdaPV.GetComponent<MaterialEffectAttacher>());
+
+        request = ResourceLoader.Instance.Load<GameObject>(pdaBundleName, pdaItem.InGameModelQV);
+        while (!request.IsComplete)
+            yield return null;
+
+	    go = (GameObject) request.LoadedAsset;
+        AxQVConsumable pdaQV = go.GetComponent<AxQVConsumable>();
+        pdaQV.name = pdaName;
+        AttachQVMaterialFxAttacher(pdaQV.GetComponent<MaterialEffectAttacher>());
+
+        LoadedConsumableItem(syringePV, syringeQV, pdaPV, pdaQV);
+        yield return 0;
+    }
+
+    void LoadedConsumableItem(AxPVConsumable syringePV, AxQVConsumable syringeQV, AxPVConsumable pdaPV, AxQVConsumable pdaQV)
+    {
+        AxConsumable syringe = new AxConsumable();
+        syringe.Initialize(2601001, 2601001, "Syring");
+        syringe.SetObject(syringePV, syringeQV);
+        arrayConsumable[0] = syringe;
+        ItemToHand(AxAttachNode.RightHand, 0);
+        ShowPVItem(false, 0);
+        ShowQVItem(false, 0);
+
+
+        AxConsumable pda = new AxConsumable();
+        pda.Initialize(2601003, 2601003, "PDA");
+        pda.SetObject(pdaPV, pdaQV);
+        arrayConsumable[1] = pda;
+        ItemToHand(AxAttachNode.RightHand, 1);
+        ShowPVItem(false, 1);
+        ShowQVItem(false, 1);
+
+        SetAnimationItemSoundFunc();
+
+    }
+    public Transform GetQVBone(string name)
+    {
+        if (qv == null)
+            return null;
+            
+        return qv.GetBone(name);
+    }
+    public bool IsFireAnimationWorks()
+    {
+        if (IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire)
+            || IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_End)
+            || IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_Start))
+        {
+            return true;
+        }
+        return false;
+    }
+    public bool IsSniperFireEndAnimatonWorks()
+    {
+        if (IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_End))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    public bool IsArmsPostmotionAnimationWorks()
+    {
+        if (IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms_Postmotion)
+        || GetPVBool(AnimatorValues.hash_NextStep_Arms_Postmotion) )
+        {
+            return true;
+        }
+        return false;
+    }
+
+    public bool IsPVIdleAnimationWorks()
+    {
+        if (IsPVStatePlaying(AnimatorValues.state_PV_Base_Idle))
+            return true;
+        return false;
+    }
+    public bool IsFireable()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms) 
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms_Postmotion)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_GetPDA)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Unarms)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_Climbing))
+            return true;
+        return false;
+
+    }
+    public bool IsUseSkill()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_Loop)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_End)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill))
+            return false;
+        return true;
+    }
+    public bool IsSingleMotionSkill()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill))
+            return false;
+        return true;
+    }
+    public bool IsUseSkillEnd()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_End)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill))
+            return false;
+        return true;
+    }
+    public bool IsChangingSkill()
+    {
+        //Debug.Log("IsChangingSkill : " + IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_Start)
+        //    + " : " + IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_End));
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseSkill_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End))
+                return false;
+        return true;
+    }
+    public bool IsChangingItem()
+    {
+        //Debug.LogFormat("IsChanging {0}, {1}, {2}, {3} = {4}"
+        //    , IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_Start)
+        //    , IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_End)
+        //    , IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_Start)
+        //    , IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_End)
+        //    , (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_Start)
+        //    && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_End)
+        //    && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_Start)
+        //    && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_End)));
+
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UseItem_End)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_End))
+            return false;
+        return true;
+    }
+
+    public bool IsUsePDA()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_Loop)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_UsePDA_End)
+            && !IsStatePlaying(AnimatorValues.state_QV_Upper_GetPDA)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_GetPDA))
+            return false;
+        return true;
+    }
+    public bool IsGetPDA()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Upper_GetPDA)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_GetPDA))
+            return false;
+        return true;
+    }
+    public bool IsZipLine()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_ZipLine_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_ZipLine_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Sit_ZipLine_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Sit_ZipLine_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Sit_ZipLine_End))
+            return false;
+        return true;
+    }
+    public bool IsGroggyCareTarget()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Target_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Target_Loop)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Target_End))
+            return false;
+        return true;
+    }
+    public bool IsGroggyCareActor()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Actor_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Actor_Loop)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Actor_End))
+            return false;
+        return true;
+    }
+    public bool IsEmoteAnimationWorks()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Emote))
+            return false;
+        return true;
+    }
+    
+    public bool IsChangingGroggyCare()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Actor_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Actor_End)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Target_Start)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_GorggyCare_Target_End))
+            return false;
+        return true;
+    }
+    /// <summary>
+    /// PV 애니메이션 동작중이면 true
+    /// </summary>
+    /// <returns></returns>
+    public bool IsPVWorks()
+    {
+        //if (pv == null || pv.CurrentBaseState <= 0)
+        //    return false;
+        //Debug.LogErrorFormat("Reload={0}, R_S={1}, R_L={2}, R_E={3}, Fire={4}, F_E={5}, T_S={6}, T_L={7}, T_E={8}, GetP={9}, UseP_S={10}, UseP_L={11}, UseP_E={12}, UseI_S={13}, UseI_L={14}, UseI_E={15}, Arm={16}, Unarm={17}, UseS_S={18}, UseS_L={19}, UseS_E={20}, UseS={21}"
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Start)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Loop)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Start)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Loop)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_GetPDA)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Start)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Loop)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Start)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Loop)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_Unarms)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Start)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Loop)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End)
+        //    , IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill));
+        //Debug.LogErrorFormat("Start:{0}, Fire:{1}, End:{2}", IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_Start), IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire), IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_End));
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_GetPDA)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UsePDA_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseItem_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Unarms)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_UseSkill)
+            && !IsSingleMotionSkill()
+            )
+            return false;
+        return true;
+    }
+    public bool IsArmsAnimationWorks()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Arms)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Unarms))
+            return false;
+        return true;
+    }
+    public bool IsPlayerDownAnimationWorks()
+    {
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_StandToDown))
+            return false;
+        return true;
+    }
+    public bool IsThrowAnimationWorks()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_End))
+            return false;
+        return true;
+    }
+    public bool IsThrowEndAnimationWorks()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Throw_End)
+            && !IsStatePlaying(AnimatorValues.state_PV_Base_UseSkill_End))
+            return false;
+        return true;
+    }
+    public bool IsMeleeAttackAnimationWorks()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Fire))
+            return false;
+        return true;
+    }
+    public bool IsReloadAnimationWorks()
+    {
+        if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Start)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_Loop)
+            && !IsPVStatePlaying(AnimatorValues.state_PV_Base_Reload_End))
+            return false;
+        return true;
+    }
+    /// <summary>
+    /// 상하체 분리회전
+    /// </summary>
+    public void SetQvRot_y(float y)
+    {
+        if (qv == null) return;
+        qv.SetRot_y(y);
+    }
+
+    public void SetDirectQvRot_y(float y)
+    {
+        if (qv == null) return;
+        qv.SetDirectRot_y(y);
+    }
+    /// <summary>
+    /// 이동중엔 상하체 분리회전 안하게 체크
+    /// </summary>
+    public void SetQvCheckMove(bool b)
+    {
+        if (qv == null) return;
+        qv.SetQvCheckMove(b);
+    }
+    public void InitBodyPosition()
+    {
+        if (qv == null || qv.QVBody == null) return;
+        qv.InitPosition(qv.QVBody.transform);
+    }
+    public void InitBodyRotate()
+    {
+        if (qv == null) return;
+        qv.InitBodyRotate();
+    }
+
+    public void SetCameraTarget(bool val)
+    {
+        isCameraTargetedCharacter = val;
+    }
+    public void LinkProperty(ref AXProperty prop)
+    {
+        axProperty = prop;
+    }
+
+    public void AttachSkill(AxSkillItem skill, bool isCameraTarget)
+    {
+        //Debug.Log("AttachSkill." + skill + " : " + skill.SkillTableID);
+        UnityEngine.Assertions.Assert.IsFalse(skill.SkillType <= AxSkillType.None);
+        UnityEngine.Assertions.Assert.IsFalse(skill.SkillType >= AxSkillType.EndOfType);
+        
+        skill.ShowPV(false);
+        pv.AttachWeapon(skill.PV.transform);
+        
+        qv.ToBack(skill.QV.transform, (int)skill.SkillType);
+
+        if ((AxCharacterSkill)skill.SkillTableID == AxCharacterSkill.Boris_EnergyShield)
+            ToHand_QV(AxAttachNode.LeftArm, skill.QV.transform);
+
+        skill.ShowQV(false);
+    }
+    /// <summary>
+    /// 특정 슬롯에 무기 추가됨. 집을때의 모션 없음. 
+    /// </summary>
+    /// <param name="slot"></param>
+    /// <param name="baseWeapon"></param>
+    /// <param name="qvWeapon"></param>
+    public void AttachWeapon(AxItem item, WeaponSlot slot, bool isCameraTarget)
+    {
+        if (slot <= WeaponSlot.None && slot >= WeaponSlot.EndofType)
+        {
+            Debug.LogErrorFormat("AttachWeapon : {0}", slot);
+            return;
+        }
+
+        if (item == null)
+        {
+            Debug.LogErrorFormat("AttachWeapon : Item is NULL");
+            return;
+        }
+
+        AxWeapon weapon = item as AxWeapon;
+        weapon.ShowPV(false);
+
+        AttachPVWeapon(weapon);
+
+        if (qv != null && weapon.QVWeapon != null)
+            qv.ToBack(weapon.QVWeapon.transform, (int)slot);
+        if(slot == WeaponSlot.First_Rifle || slot == WeaponSlot.Second_Rifle)
+            weapon.ShowQV(!isCameraTarget);
+        else
+            weapon.ShowQV(false);
+    }
+    public void AttachPVWeapon(AxWeapon target)
+    {
+        //Debug.Log("AttachPVWeapon." + target);
+        if(pv != null && target != null)
+            pv.AttachWeapon(target.PVWeapon.transform, target.WorldKey, target.ID);
+    }
+
+    public void AttachPVSkill(AxPVSkill target)
+    {
+        if (pv == null || target == null)
+        {
+            Debug.LogErrorFormat("AttachPVSkill {0} {1}", pv, target);
+            return;
+        }
+
+        pv.AttachWeapon(target.transform);
+    }
+    
+    /// <summary>
+    /// 애니메이터 초기화 (캐릭터 꺼졌다 켜지면 다시 호출 해줘야 함. )
+    /// </summary>
+    public void InitializeAnimator()
+    {
+        if (pv == null || qv == null) return;
+        //Debug.Log(("InitializeAnimator"));
+        pv.InitializeAnimator();
+        qv.InitializeDictionary();
+    }
+    
+    public void ShowPVHand(bool isShow)
+    {//
+        if (pv == null) return;
+        if (!axProperty.IsCameraTarget || axProperty.IsGroggyCare || axProperty.IsClimbing)
+        {
+            isShow = false;
+            //Debug.Log("ShowPVHand.NoCameraTarget");
+        }
+
+        //Debug.LogFormat("ShowPVHand.{0}", isShow);
+
+        pv.ShowHand(isShow);
+    }
+    public void ShowQVBody(bool isShow)
+    {
+        if (qv == null) return;
+        qv.ShowBody(isShow);
+    }
+    public void ShowLobby(bool isShow)
+    {
+        if (qv == null) return;
+        qv.ShowLobby(isShow);
+    }
+         
+    public void ShowPVItem(bool isShow, int slot)
+    {
+        if (arrayConsumable == null)
+            return;
+        //DataTableManager.AX_AccessoryTable
+        //Debug.Log("ShowPVItem : " + isShow + " : " + slot);
+        if (!axProperty.IsCameraTarget)
+            isShow = false;
+
+        if (slot <= -1 || slot > 1)
+        {
+            if (arrayConsumable[0] == null || arrayConsumable[0].PV == null || arrayConsumable[1] == null || arrayConsumable[1].PV == null)
+            {
+                //Debug.LogFormat("Sth is NULL {0}={1}, {2}={3}", arrayConsumable[0], arrayConsumable[0].PV , arrayConsumable[1], arrayConsumable[1].PV);
+                return;
+            }
+                
+            arrayConsumable[0].ShowPV(isShow);//.PV.ShowObject(isShow, isActive);
+            arrayConsumable[1].ShowPV(isShow);//.PV.ShowObject(isShow, isActive);
+        }
+        else
+        {
+            if (arrayConsumable[slot] == null || arrayConsumable[slot].PV == null)
+            {
+                //Debug.LogFormat("Sth is NULL {0}, {1}={2}", slot, arrayConsumable[slot], arrayConsumable[slot].PV);
+                return;
+            }
+                
+            arrayConsumable[slot].ShowPV(isShow);//.PV.ShowObject(isShow, isActive);
+        }
+
+    }
+    public void ShowQVItem(bool isShow, int slot)
+    {
+        //Debug.LogError("ShowQVItem : " + Name + " : " + isShow + " : " + slot);
+        if (arrayConsumable == null)
+            return;
+        if (slot == -1 || slot > 1)
+        {
+            if (arrayConsumable[0] == null || arrayConsumable[0].QV == null || arrayConsumable[1] == null || arrayConsumable[1].QV == null)
+            {
+                //Debug.LogFormat("Sth is NULL {0}={1}, {2}={3}", arrayConsumable[0], arrayConsumable[0].QV, arrayConsumable[1], arrayConsumable[1].QV);
+                return;
+            }
+                
+            //Debug.Log("!!!! " + slot + " : " + isShow);
+            arrayConsumable[0].ShowQV(isShow);
+            arrayConsumable[1].ShowQV(isShow);
+        }
+        else
+        {
+            if (arrayConsumable[slot] == null || arrayConsumable[slot].QV == null)
+            {
+                //Debug.LogFormat("Sth is NULL {0}, {1}={2}", slot, arrayConsumable[slot], arrayConsumable[slot].QV);
+                return;
+            }
+                
+            //Debug.Log("@@@@ " + slot + " : " + isShow);
+            arrayConsumable[slot].ShowQV(isShow);
+        }
+
+    }
+
+    public Transform GetLFingerNode()
+    {
+        return pv.GetLFingerNode();
+    }
+
+    public Transform GetRForearmNode()
+    {
+        return pv.GetRForearmNode();
+    }
+
+    public void AttachPVMaterialFxAttacher(MaterialEffectAttacher Attacher)
+    {
+        pv.AttachPVMaterialFxAttacher(Attacher);
+    }
+
+    public void DetachPVMaterialFxAttacher(MaterialEffectAttacher Attacher)
+    {
+        pv.DetachPVMaterialFxAttacher(Attacher);
+    }
+
+    public void AttachQVMaterialFxAttacher(MaterialEffectAttacher Attacher)
+    {
+        qv.AttachQVMaterialFxAttacher(Attacher);
+    }
+
+    public void DetachQVMaterialFxAttacher(MaterialEffectAttacher Attacher)
+    {
+        qv.DetachQVMaterialFxAttacher(Attacher);
+    }
+
+    public void PVMaterialFxPlay(MaterialEffectPlayer.EMaterialEffectType Type, float effectEndTime, float effectTime = 1)
+    {
+        pv.PVMaterialFxPlay(Type, effectEndTime, effectTime);
+    }
+    public void QVMaterialFxPlay(MaterialEffectPlayer.EMaterialEffectType Type, float effectEndTime, float effectTime = 1)
+    {
+        qv.QVMaterialFxPlay(Type, effectEndTime, effectTime);
+    }
+
+    public void PVMaterialFxStopAll()
+    {
+        pv.PVMaterialFxStopAll();
+    }
+
+    public void QVMaterialFxStopAll()
+    {
+        qv.QVMaterialFxStopAll();
+    }
+
+    public MaterialEffectBase QVGetPlayingMaterialFx()
+    {
+        return qv.QVGetPlayingMaterialFx();
+    }
+
+    #endregion
+        #region 캐릭터 동작 (외부 명령)
+        /// <summary>
+        /// 3인칭 견착 방향
+        /// </summary>
+        /// <param name="cam"></param>
+    public void Aiming(Vector3 rot, bool isZipLine)
+    {
+        if (pv == null || qv == null) return;
+        
+        //pv.Aiming(forw);//임시
+        qv.Aiming(rot, isZipLine);
+    }
+    public void EnableAim(bool val)
+    {
+        if (qv == null) return;
+        //Debug.Log("EnableAim : " + val);
+        qv.EnableAim(val);
+    }
+    public void OnIdleStart(Action onStart)
+    {
+        if (pv == null) return;
+        pv.OnIdleStart(onStart);
+    }
+
+    /// <summary>
+    /// 바디 회전
+    /// </summary>
+    /// <param name="x"></param>
+    /// <param name="y"></param>
+    public void SetRotate(float x, float y)
+    {
+        pv.SetRotate(x, y);
+    }
+
+    /// <summary>
+    /// 손에 들고 있는거 등 뒤로 
+    /// </summary>
+    /// <param name="slot"></param>
+    public void SlotToBack(AxWeapon target, int slot)
+    {
+        //Debug.Log("SlotToBack." + target+"." + slot);
+        if (qv == null) return;
+        if (target == null) return;
+        if (pv == null) return;
+        if (target.QVWeapon == null) return;
+
+        target.ShowPV(false);
+
+        if (isCameraTargetedCharacter)
+        {
+            if (slot < 0 || slot > 1)
+                target.ShowQV(false);
+        }
+        if(slot == (int)WeaponSlot.Fifth_Throw || slot == (int)WeaponSlot.Fourth_Melee)
+            target.ShowQV(false);
+
+        pv.DettachWeapon(target.PVWeapon.transform);
+
+        qv.ToBack(target.QVWeapon.transform, slot);
+        SetPVBool(AnimatorValues.hash_NextStep_Unarms, false);
+        SetQVBool(AnimatorValues.hash_NextStep_Unarms, false);
+
+        
+
+        //AnimateIdle(0, slot, 0);
+    }
+    /// <summary>
+    /// 지정된 슬롯을 핸드로 
+    /// </summary>
+    /// <param name="slot"></param>
+    public void SlotToHand(AxInventory target)
+    {
+        //Debug.Log("SlotToHand." + target );
+        if (target == null || pv == null || qv == null)
+            return;
+        
+        AxWeapon current = target.GetCurrentWeapon();
+
+        if(current == null ||  current.PVWeapon == null || current.QVWeapon == null)
+        {
+            Debug.LogError("GetCurrentWeapon is NULL");
+            return;
+        }
+
+        List<AxWeapon> others = target.GetOtherWeapon();
+
+        //ShowPVItem(false, -1);
+        //ShowQVItem(false, -1);
+
+        for (int i = 0; i < others.Count; i++)
+        {
+            if (others[i] == null || others[i].PVWeapon == null || others[i].QVWeapon == null)
+                continue;
+
+            others[i].ShowPV(false);
+            
+            pv.DettachWeapon(others[i].PVWeapon.transform);
+
+            if (others[i].CurrentSlot == WeaponSlot.First_Rifle || others[i].CurrentSlot == WeaponSlot.Second_Rifle)
+                qv.ToBack(others[i].QVWeapon.transform, (int)others[i].CurrentSlot);
+            else
+                others[i].ShowQV(false);
+        }
+
+        if (isCameraTargetedCharacter)
+        {
+            if (!axProperty.IsGroggy && !axProperty.IsClimbing)
+                current.ShowPV(true);
+
+            AttachPVWeapon(current);
+        }
+        else
+        {
+            current.ShowPV(false);
+            
+            if (current.CurrentSlot == WeaponSlot.First_Rifle || current.CurrentSlot == WeaponSlot.Second_Rifle)
+            {
+                current.ShowQV(true);
+            }
+            else
+                current.ShowQV(false);
+        }
+
+
+        if (pv != null && current.PVWeapon != null)
+        {
+            pv.ToHand(AxAttachNode.RightHand, current.PVWeapon.transform);
+        }
+            
+
+        if (qv != null && current.QVWeapon != null)
+        {
+            qv.ToHand(AxAttachNode.RightHand, current.QVWeapon.transform);
+        }
+
+        ArmsWeapon(current);
+
+        //Debug.LogFormat("SlotToHand.{0}={1}, {2}={3}", 
+        //    target.GetCurrentWeapon().WorldKey, target.GetCurrentWeapon().transform.localRotation,
+        //    target.GetPrevWeapon().WorldKey, target.GetPrevWeapon().transform.localRotation);
+    }
+    public void SlotToHand(AxWeapon target)
+    {
+        //Debug.Log("SlotToHand." + target );
+        if (target == null)
+            return;
+
+        //ShowPVItem(false, -1);
+        //ShowQVItem(false, -1);
+
+        if (isCameraTargetedCharacter)
+        {
+            target.ShowPV(true);
+            AttachPVWeapon(target);
+            target.ShowQV(false);
+        }
+        else
+        {
+            target.ShowPV(false);
+            if(target.CurrentSlot == WeaponSlot.First_Rifle || target.CurrentSlot == WeaponSlot.Second_Rifle)
+                target.ShowQV(true);
+            else
+                target.ShowQV(false);
+        }
+            
+
+        if (pv != null && target.PVWeapon != null)
+            pv.ToHand(AxAttachNode.RightHand, target.PVWeapon.transform);
+
+        if (qv != null && target.QVWeapon != null)
+            qv.ToHand(AxAttachNode.RightHand, target.QVWeapon.transform);
+
+        ArmsWeapon(target);
+        //Debug.Log("BackToHand." + arrayWeapon[slot].Name + "." + slot+ ". " + currentWeapon.Name);
+        //AnimateIdle(0, slot, 0);
+    }
+    /// <summary>
+    /// 로비에서 로딩한 총기를 손으로 
+    /// </summary>
+    /// <param name="slot"></param>
+    public void LobbyWeaponToHand(AxWeapon currWeapon, AxWeapon prevWeapon)
+    {
+        //Debug.Log("SlotToHand." + target );
+        if (qv != null)
+        {
+            if (prevWeapon != null)
+                qv.ToBack(prevWeapon.transform, -1);
+
+            if (currWeapon != null)
+                qv.ToHand(AxAttachNode.RightHand, currWeapon.transform);
+        }
+        //ArmsWeapon(currWeapon);
+    }
+
+    public void ItemToHand(AxAttachNode node, int slot)
+    {
+        if (slot < 0 || slot >= arrayConsumable.Length)
+            return;
+        if (arrayConsumable[slot] == null)
+            return;
+        if (arrayConsumable[slot].PV == null || arrayConsumable[slot].QV == null)
+            return;
+
+        pv.ToHand(node, arrayConsumable[slot].PV.transform);
+        qv.ToHand(node, arrayConsumable[slot].QV.transform);
+
+    }
+    
+    /// <summary>
+    /// 무기를 등으로 보내고 
+    /// 스킬을 손으로 보내고 
+    /// 스킬 애니메이션 세팅 하고 까지.
+    /// </summary>
+    public void SkillToHand(AxSkillItem skill, AxWeapon weapon, WeaponSlot targetSlot, Action action)
+    {
+        if (skill == null || weapon == null )
+            return;
+
+        //Debug.Log("SkillToHand " + skill);
+        SlotToBack(weapon, (int)targetSlot);
+        skill.ShowPV(isCameraTargetedCharacter);
+        skill.ShowQV(!isCameraTargetedCharacter);
+
+        ArmsSkill(skill);
+        if(action != null)
+        {
+            //Debug.Log("SkillToHand DoAction");
+            action();
+        }
+            
+    }
+    /// <summary>
+    /// 무기를 손으로 보내고 
+    /// 스킬을 hide 슬롯으로 보내고
+    /// 무기 애니메이션 세팅하고 
+    /// </summary>
+    public void SkillToBack(AxSkillItem target, Action action)
+    {
+        if (target == null || currentSkill == null)
+        {
+            //Debug.Log("No Current Skill SkillToBack : " + currentSkill + " : " + target);
+            return;
+        }
+
+
+        //Debug.LogError("SkillToBack : " + currentSkill + " : " + target.SkillTableID);
+        //SlotToHand(currentWeapon);
+
+        axProperty.IsUseSkill = false;
+        axProperty.IsSkillReady = false;
+        axProperty.IsSkillReserved = false;
+
+        target.ShowPV(false);
+        target.ShowQV(false);
+
+        if(target.QV)
+        {
+            if (target.SkillTableID != (int)AxCharacterSkill.Boris_EnergyShield)
+                qv.ToBack(target.QV.transform, 999);
+            else
+                qv.ToHand(AxAttachNode.LeftArm, target.QV.transform);
+        }
+            
+        if(action != null)
+            action();
+    }
+    public void SetPvDummyAnimator()
+    {
+        //Debug.Log("SetPvDummyAnimator : " + pv );
+        if (pv != null )
+        {
+            pv.SetAnimator(_dummyAnimator.runtimeAnimatorController);
+        }
+    }
+    void ArmsWeapon(AxWeapon weapon)
+    {
+        //currentWeapon = weapon;
+        //Debug.Log("ArmsWeapon." + " : " +  weapon + transform.parent.name);
+        if (qv != null)
+		{
+			qv.ArmWeapon(weapon);
+			weapon.ShowQV(!isCameraTargetedCharacter);
+		}
+
+		if (pv != null && weapon.PVWeapon != null)
+        {
+            //Debug.Log("ArmsWeapon : " + weapon.PVWeapon);
+            pv.SetPVWeapon(weapon.PVWeapon);
+            pv.SetAnimator(weapon.PVWeapon.GetAnimatorController());
+        }
+
+        //currentWeapon.PVWeapon.ShowObject(true);
+    }
+
+    public void ToHand_QV(AxAttachNode node, Transform target)
+    {
+        if (qv == null)
+            return;
+        //Debug.Log("ToHand : " + node + " : " + target);
+        qv.ToHand(node, target);
+    }
+
+    public void ArmsSkill(AxSkillItem skill)
+    {
+        currentSkill = skill;
+        qv.ArmSkill(skill);
+        
+        pv.ToHand(AxAttachNode.RightHand, skill.PV.transform);
+        pv.SetAnimator(currentSkill.GetPVAnimatorController());
+    }
+    public void SetPVAnimator(AxWeapon weapon)
+    {
+        if (pv == null)
+            return;
+        if (weapon == null)
+        {
+            Debug.Log("SetPVAnimator Weapon is NULL: ");
+            return;
+        }
+            
+        if (weapon.PVWeapon == null)
+        {
+            Debug.Log("SetPVAnimator PVWeapon is NULL : ");
+            return;
+        }
+            
+
+        pv.SetAnimator(weapon.PVWeapon.GetAnimatorController());
+        pv.InitializeAnimator();
+    }
+    public void SetQVAnimator(AxWeapon weapon)
+    {
+        if (qv == null)
+            return;
+        if (weapon == null)
+        {
+            //Debug.Log("SetQVAnimator Weapon is NULL: ");
+            return;
+        }
+
+        if (weapon.QVWeapon == null)
+        {
+            //Debug.Log("SetQVAnimator PVWeapon is NULL : ");
+            return;
+        }
+
+
+        qv.SetAnimator(weapon.QVWeapon.GetAnimatorController());
+        qv.InitializeDictionary();
+    }
+    #endregion
+    #region 애니메이션 플레이
+
+    /// <summary>
+    /// PV 크로스페이드. 일단 잘 안쓸것.. 쓸일 있으면 그때 설명
+    /// </summary>
+    /// <param name="stateHash"></param>
+    /// <param name="normalizedTransitionDuration"></param>
+    /// <param name="layer"></param>
+    /// <param name="normalizedTimeOffset"></param>
+    /// <param name="normalizedTransitionTime"></param>
+    void CrossFadePV_ms(int stateHash, float normalizedTransitionDuration, int layer, float normalizedTimeOffset, float normalizedTransitionTime, float prevTime, float msTime)
+    {
+        if (pv == null) return;
+        //if(stateHash == AnimatorValues.state_PV_Base_UseSkill_End)
+        //Debug.LogErrorFormat("CrossFadePV = {0} ", AnimatorValues.Find(stateHash));
+        pv.CrossFade_ms(stateHash, normalizedTransitionDuration, layer, normalizedTimeOffset, normalizedTransitionTime, prevTime, msTime);
+    }
+
+    /// <summary>
+    /// ms입력받아 그시간만큼 애니메이션 재생
+    /// </summary>
+    /// <param name = "state" > AnimatorValues.Value 가져와서 쓸것. </param>
+    /// <param name = "layer" > AnimatorValues.Layer 가져와서 쓸것. </param>
+    /// <param name = "prevTime" > 테이블에 있는 애니메이션 기본 시간  </param>
+    /// <param name = "msTime" > 테이블에 있는 설정된애니메이션 시간</param>
+    
+    void PlayPV_ms(int stateHash, int layer, float normalizedTime, float prevTime, float msTime)
+    {
+        if (pv == null) return;
+        //if (stateHash == AnimatorValues.state_PV_Base_Arms || stateHash == AnimatorValues.state_PV_Base_Unarms || stateHash == AnimatorValues.state_PV_Base_Reload
+        //    || stateHash == AnimatorValues.state_PV_Base_Reload_End)
+        //    Debug.LogErrorFormat("PlayPV = {0} ", AnimatorValues.Find(stateHash));
+        pv.Play_ms(stateHash, layer, normalizedTime, prevTime, msTime);
+    }
+
+    /// <summary>
+    /// QV 크로스페이드. 일단 잘 안쓸것.. 쓸일 있으면 그때 설명
+    /// </summary>
+    /// <param name="stateHash"></param>
+    /// <param name="normalizedTransitionDuration"></param>
+    /// <param name="layer"></param>
+    /// <param name="normalizedTimeOffset"></param>
+    /// <param name="normalizedTransitionTime"></param>
+    void CrossFadeQV_ms(int stateHash, float normalizedTransitionDuration, int layer, float normalizedTimeOffset, float normalizedTransitionTime, float prevTime, float msTime)
+    {
+        if (qv == null) return;
+        //if (layer == AnimatorValues.BaseLayer && stateHash == AnimatorValues.state_QV_Base_Idle)
+            //Debug.LogErrorFormat("CrossFadeQV = {0} ", AnimatorValues.Find(stateHash));
+        qv.CrossFade_ms(stateHash, normalizedTransitionDuration, layer, normalizedTimeOffset, normalizedTransitionTime, prevTime, msTime);
+    }
+
+    /// <summary>
+    /// ms입력받아 그시간만큼 애니메이션 재생
+    /// </summary>
+    void PlayQV_ms(int stateHash, int layer, float normalizedTime, float prevTime, float msTime)
+    {
+        if (qv == null)
+        {
+            //Debug.Log("PlayQV_ms RETURN");
+            return;
+        }
+        //    Debug.LogError("PlayQV_ms :" + prevTime + " // " + msTime + " : " + prevTime / msTime);
+        //if (layer == AnimatorValues.BaseLayer)
+        //Debug.LogErrorFormat("PlayQV = {0} ", AnimatorValues.Find(stateHash));
+        qv.Play_ms(stateHash, layer, prevTime, msTime, normalizedTime);
+    }
+
+    #endregion
+    #region 애니메이션 컨트롤 (내부 호출)
+    /// <summary>
+    /// idle 애니메이션
+    /// </summary>
+    /// <param name="newID"></param>
+    /// <param name="newSlot"></param>
+    /// <param name="normalizedTime"></param>
+
+    public void AnimateDead()
+    {
+        _dieEffect.LatePlay();
+    }
+
+    public void AnimateResurrection()
+    {
+        _dieEffect.Resurrection();
+    }
+    public void AnimateForceIdle(bool standType)
+    {
+
+        float standVal = 0.0f;
+        if (standType)
+            standVal = 1.0f;
+        else
+            standVal = 0.0f;
+
+        //Debug.Log(("AnimateForceIdle " + standType ));
+
+        SetQVFloat(AnimatorValues.hash_StandType, standVal);
+        CrossFadePV_ms(AnimatorValues.state_PV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+        CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0f, 0.1f, 0f, 0f);
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+    }
+    public void AnimatePVIdle(bool standType)
+    {
+        //Debug.Log("AnimatePVIdle : "+ Name);
+        float standVal = 0.0f;
+        if (standType)
+            standVal = 1.0f;
+        else
+            standVal = 0.0f;
+
+        SetQVFloat(AnimatorValues.hash_StandType, standVal);
+
+        if (!IsPVWorks())
+        {
+            CrossFadePV_ms(AnimatorValues.state_PV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+
+            CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0f, 0.1f, 0f, 0f);
+        }
+    }
+    public void AnimateIdle(bool standType, float normalizedTime)
+    {
+        //Debug.Log("AnimateIdle : " + standType);
+        float standVal = standType ? 1.0f : 0.0f;
+
+        //Debug.LogFormat("AnimateIdle : {0}", !IsPVWorks());
+        ///SetPVFloat(AnimatorValues.hash_StandType, standVal);
+        SetQVFloat(AnimatorValues.hash_StandType, standVal);
+        //SetQVLayerWeight(AnimatorValues.UpperLayer, 1f);
+
+        if (!IsPVWorks())
+        {
+            CrossFadePV_ms(AnimatorValues.state_PV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0f, 0.1f, 0f, 0f);
+
+        }
+
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_Idle) && !axProperty.IsGroggyCare && !IsZipLine() && !axProperty.IsGroggy)
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+
+    }
+    public void ReloadCancel()
+    {
+        //Debug.Log("ReloadCancel");
+        if(qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+        {
+            //Debug.LogError("ReloadCancel.QV is NULL");
+            return;
+        }
+        SetPVLayerWeight(AnimatorValues.SitLayer, 1f);
+
+        var reloadState = qv.GetStateBehavior<AnimatorState_QV_Reload>(AnimatorValues.state_QV_Upper_Reload);
+        if (reloadState != null)
+            reloadState.ActEnd = () => { axProperty.IsReload = false; InitializeAnimationSpeed(); };
+        else
+            Debug.LogError("GetStateBehavior.ReloadState is NULL");
+
+        var reloadLoopState = qv.GetStateBehavior<AnimatorState_QV_Reload_Loop>(AnimatorValues.state_QV_Upper_Reload_Loop);
+        if(reloadLoopState != null)
+            reloadLoopState.ActLoopEnd = ()=> { axProperty.IsReload = false; };
+        else
+            Debug.LogError("GetStateBehavior.ReloadLoopState is NULL");
+
+        var reloadStartState = qv.GetStateBehavior<AnimatorState_QV_Reload_Start>(AnimatorValues.state_QV_Upper_Reload_Start);
+        if (reloadStartState != null)
+            reloadStartState.ActEnd = null;
+        else
+            Debug.LogError("GetStateBehavior.ReloadStartState is NULL");
+
+        var reloadEndState = qv.GetStateBehavior<AnimatorState_QV_Reload_End>(AnimatorValues.state_QV_Upper_Reload_End);
+        if(reloadEndState != null)
+            reloadEndState.ActEnd = () => { axProperty.IsReload = false; };
+        else
+            Debug.LogError("GetStateBehavior.ReloadEndState is NULL");
+    }
+    public void AnimateReloadCancel(bool standType)
+    {
+        float standVal = 0.0f;
+        if (standType)
+            standVal = 1.0f;
+        else
+            standVal = 0.0f;
+        //Debug.Log("AnimateReloadCancel");
+        SetQVFloat(AnimatorValues.hash_StandType, standVal);
+        CrossFadePV_ms(AnimatorValues.state_PV_Base_Idle, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+        CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0f, 0.1f, 0f, 0f);
+    }
+    /// <summary>
+    /// 무기가 있는 상태에서 다른무기로 무기 변경시 
+    /// Out->Done->손에있는 무기 Back 으로 ->선택된 무기 손으로->Select->Done NOPE! 다 각자 동작하는걸로 만들자. 
+    /// </summary>
+    /// <param name="newID"></param>
+    /// <param name="normalizedTime"></param>
+    public void AnimateArmsWeapon(AxInventory inventory, int nLength, float normalizedTime, Action onStart = null, Action onEnd = null, Action onPlaySound = null)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        AxWeapon weapon = inventory.GetCurrentWeapon();
+        if (weapon == null) return;
+        //Debug.Log("AnimateSelectWeapon."+weapon );
+
+        ClearReloadEndAction(weapon);
+        
+
+        if (isCameraTargetedCharacter && axProperty.ViewMode == CameraViewMode.PV)
+        {
+            ShowPVHand(true);
+        }
+        
+        if (onPlaySound != null)
+            onPlaySound();
+
+        var armsState = qv.GetStateBehavior<AnimatorState_QV_Arms>(AnimatorValues.state_QV_Upper_Arms);
+
+        if (armsState != null)
+        {
+            armsState.ActStart
+            = () => {
+                SlotToHand(inventory);
+                if (onStart != null)
+                    onStart.Invoke();
+            };
+        }
+        else
+            Debug.LogError("GetStateBehavior.ArmsState is NULL");
+
+        if (armsState != null)
+            armsState.ActEnd 
+                = () =>
+                {
+                    if(onEnd != null)
+                        onEnd.Invoke();
+                };
+        else
+            Debug.LogError("GetStateBehavior.ArmsState is NULL");
+
+        ThrowEnd();
+
+        //Debug.Log("AnimateArmsWeapon : ");
+        int val = weapon.GetAnimationLength().Armed;
+
+        if (nLength != 0)
+            val = nLength;
+
+        if (_AniLengthTest)
+            val = weapon.GetTestLength().Armed;
+
+        if (isCameraTargetedCharacter)
+            AxCameraController.Singleton.SetCurrentWeaponPvFov();
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Arms, AnimatorValues.BaseLayer
+            , normalizedTime, weapon.GetAnimationLength().Armed, val); //* arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e23_ChangeSpeed]);
+        //if (!isClimb)
+        //CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Arms, 0.0f, AnimatorValues.UpperLayer, normalizedTime, 0f, weapon.GetQVLength().Armed, nLength);
+
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Arms, AnimatorValues.UpperLayer
+        , normalizedTime, weapon.GetQVLength().Armed, val); //* arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e23_ChangeSpeed]);
+
+
+
+    }
+    /// <summary>
+    /// 무기 집어넣는 동작
+    /// </summary>
+    /// <param name="id"></param>
+    /// <param name="slot"></param>
+    /// <param name="normalizedTime"></param>
+    public void AnimateUnArmsWeapon(AxWeapon target, WeaponSlot targetSlot, int nLength, float normalizedTime, Action onStart = null, Action onEnd = null, Action onPlaySound = null)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+        {
+            //Debug.LogErrorFormat("AnimateUnArms.QV={0}, Target={1}", qv, target);
+            return;
+        }
+            
+        //Debug.Log("UnArms." + target + "." + currentSlot + "." + onEnd);
+
+        if (_AniLengthTest)
+                nLength = target.GetTestLength().Unarmed;
+        if (onPlaySound != null)
+            onPlaySound();
+
+        int val = target.GetAnimationLength().Unarmed;
+
+        if (_AniLengthTest)
+            val = target.GetTestLength().Unarmed;
+
+        var unarmsState = qv.GetStateBehavior<AnimatorState_QV_Unarms>(AnimatorValues.state_QV_Upper_Unarms);
+        if(unarmsState != null)
+            unarmsState.ActStart = () =>
+            {
+                if(onStart != null)
+                    onStart.Invoke();
+            };
+        else
+            Debug.LogErrorFormat("GetStateBehaviour UnarmsState is NULL");
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Unarms, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Unarmed, val); //* arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e23_ChangeSpeed]);
+        //if(!isClimb)
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Unarms, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Unarmed, val); //* arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e23_ChangeSpeed]);
+
+        if(unarmsState  != null)
+        {
+            unarmsState.ActEnd
+            = () =>
+            {
+                SlotToBack(target, (int)targetSlot);
+                if (onEnd != null) onEnd.Invoke();
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour UnarmsState is NULL");
+
+
+    }
+    public void AnimateArmsSkill(AxSkillItem skill, AxWeapon weapon, WeaponSlot targetSlot, int nLength, float normalizedTime, Action onStart = null, Action onEnd = null)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        if (skill == null) return;
+
+        //Debug.Log("AnimateArmsSkill."+ skill);
+        
+        if (isCameraTargetedCharacter)
+        {
+            ShowPVHand(true);
+            AxCameraController.Singleton.SetPvFOV(CameraValues.ItemPVFov);
+        }
+
+
+        var armsState = qv.GetStateBehavior<AnimatorState_QV_Arms>(AnimatorValues.state_QV_Upper_Arms);
+        if (armsState != null)
+        {
+            armsState.ActStart
+            = () =>
+            {
+                SkillToHand(skill, weapon, targetSlot, null);
+                onStart();
+            };// SlotToHand(slot, isClimb);
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour ArmsState is NULL");
+
+        ThrowEnd();
+        SkillEnd();
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Arms, AnimatorValues.BaseLayer
+            , normalizedTime, skill.GetAnimationLength().Armed, nLength); 
+        //if (!isClimb)
+        
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Arms, AnimatorValues.UpperLayer
+        , normalizedTime, skill.GetQVLength().Armed, nLength);
+
+        if(armsState != null)
+            armsState.ActEnd = onEnd;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour UnarmsState is NULL");
+
+    }
+    public void ClearArmsAction()
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+        //Debug.Log("ClearArmsAction");
+        var armsState = qv.GetStateBehavior<AnimatorState_QV_Arms>(AnimatorValues.state_QV_Upper_Arms);
+        if (armsState != null)
+        {
+            armsState.ActStart = null;
+        }
+            
+        else
+            Debug.LogErrorFormat("GetStateBehaviour armsState is NULL");
+    }
+    public void AnimateUnArmsSkill(AxSkillItem target, AxWeapon weapon, WeaponSlot targetSlot, int nLength, float normalizedTime, Action onStart = null, Action onEnd = null, Action onPlaySound = null)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+        if (target == null)
+            return;
+        //Debug.Log("UnArms." + target + "." + currentSlot + "." + onEnd);
+
+        if (onPlaySound != null)
+            onPlaySound();
+
+
+        var unarmsState = qv.GetStateBehavior<AnimatorState_QV_Unarms>(AnimatorValues.state_QV_Upper_Unarms);
+        if (unarmsState != null)
+        {
+            unarmsState.ActStart
+            = () =>
+            {
+                if (onStart != null)
+                    onStart();
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour unarmsState is NULL");
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Unarms, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Unarmed, nLength); 
+        //if(!isClimb)
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Unarms, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Unarmed, nLength);
+
+        if(unarmsState != null)
+        {
+            unarmsState.ActEnd
+            = () =>
+            {
+                //Debug.Log("???????????????????????? : " + onEnd);
+                SkillToBack(target, null);
+                if (onEnd != null)
+                    onEnd();
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour unarmsState is NULL");
+    }
+
+    public int GetReloadLoopCount()
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return 0;
+        var reloadLoopState = qv.GetStateBehavior<AnimatorState_QV_Reload_Loop>(AnimatorValues.state_QV_Upper_Reload_Loop);
+        if(reloadLoopState != null)
+            return reloadLoopState.LoopCount;
+        else
+        {
+            Debug.LogErrorFormat("GetStateBehaviour reloadLoopState is NULL");
+            return 0;
+        }
+
+    }
+    public void ClearReloadEndAction(AxWeapon weapon)
+    {
+        if (qv == null)
+            return;
+
+        var reloadState = qv.GetStateBehavior<AnimatorState_QV_Reload>(AnimatorValues.state_QV_Upper_Reload);
+        if (reloadState != null)
+            reloadState.ActEnd = null;
+        if(axProperty.IsReload == true)
+            axProperty.IsReload = false;
+        if (weapon != null)
+        {
+            weapon.IsReloading = false;
+        }
+
+    }
+    public void AnimateReloadWeapon(AxWeapon target, int nLength, float normalizedTime, Action onEnd = null)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+        {
+            //Debug.Log("AnimateReloadWeapon : qv.QVBody.isActiveAndEnabled" + qv.QVBody.isActiveAndEnabled);
+            return;
+        }
+            
+
+        var reloadState = qv.GetStateBehavior<AnimatorState_QV_Reload>(AnimatorValues.state_QV_Upper_Reload);
+        if(reloadState != null)
+            reloadState.ActEnd = null;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadState is NULL");
+
+        int reloadVal = target.GetAnimationLength().Reload;
+
+        if (_AniLengthTest)
+            reloadVal = target.GetTestLength().Reload;
+        //Debug.Log("AnimateReloadWeapon : "+ onEnd);
+        if (!axProperty.IsZipLine)
+            SetPVLayerWeight(AnimatorValues.SitLayer, 0f);
+        //Debug.Log("AnimateReloadWeapon : " + reloadVal + " : PV =" + target.GetAnimationLength().Reload + " : QV =" + target.GetQVLength().Reload);
+        PlayPV_ms(AnimatorValues.state_PV_Base_Reload, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Reload, reloadVal);// * arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e24_ReloadSpeed]);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Reload, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Reload, reloadVal);// * arrayWeapon[currentSlot].AnimationLength_Calc[(int)StatPerformanceType.e24_ReloadSpeed]);
+
+        if (reloadState != null)
+            reloadState.ActEnd = () => {
+
+                //Debug.Log("ReloadEnd");
+                SetPVLayerWeight(AnimatorValues.SitLayer, 1);
+                SetPVBool(AnimatorValues.hash_Sit, axProperty.IsSit);
+                if (onEnd != null)
+                {
+                    onEnd.Invoke();
+
+                    //Debug.LogFormat("OnEnd_Reload");
+                }
+                    
+                InitializeAnimationSpeed();
+
+                //Debug.Log("Animator.Find = " + AnimatorValues.Find(qv.CurrentBaseState));
+                if (qv != null && qv.CurrentBaseState != AnimatorValues.state_QV_Base_Climbing)
+                {
+                    if (axProperty.MoveDir == 0)
+                        AnimateForceIdle(axProperty.IsSit);
+                }
+                    
+            };
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadState is NULL");
+
+
+    }
+    public void AnimateReloadStartWeapon(AxWeapon target, int nLength, float normalizedTime, Action action)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        //Debug.Log("AnimateReloadStartWeapon : " + action);
+        int reloadVal = target.GetAnimationLength().Reload_Start;
+
+        if (_AniLengthTest)
+            reloadVal = target.GetTestLength().Reload_Start;
+        if(!axProperty.IsZipLine)
+            SetPVLayerWeight(AnimatorValues.SitLayer, 0f);
+
+        SetQVBool(AnimatorValues.hash_NextStep_Reload, true);
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Reload_Start, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Reload_Start, reloadVal);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Reload_Start, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Reload_Start, reloadVal);
+
+        var reloadStartState = qv.GetStateBehavior<AnimatorState_QV_Reload_Start>(AnimatorValues.state_QV_Upper_Reload_Start);
+        if(reloadStartState != null)
+        {
+            reloadStartState.ActEnd =
+            () =>
+            {
+                AnimateReloadLoopWeapon(target, 0, 0, action);
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadStartState is NULL");
+    }
+
+    public void AnimateReloadLoopWeapon(AxWeapon target, int nLength, float normalizedTime, Action action)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+
+        int reloadVal = target.GetAnimationLength().Reload_Loop;
+
+        if (_AniLengthTest)
+            reloadVal = target.GetTestLength().Reload_Loop;
+        //Debug.Log("AnimateReloadLoopWeapon");
+        PlayPV_ms(AnimatorValues.state_PV_Base_Reload_Loop, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Reload_Loop, reloadVal);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Reload_Loop, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Reload_Loop, reloadVal);
+        var reloadLoopState = qv.GetStateBehavior<AnimatorState_QV_Reload_Loop>(AnimatorValues.state_QV_Upper_Reload_Loop);
+        if(reloadLoopState != null)
+            reloadLoopState.ActLoopEnd = action;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadLoopState is NULL");
+    }
+    public void AnimateReloadEndWeapon(AxWeapon target, int nLength, float normalizedTime)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        //Debug.Log("RELOADEND : " + target);
+        int reloadVal = target.GetAnimationLength().Reload_End;
+
+        if (_AniLengthTest)
+        {
+            //Debug.Log("LengthTEST ");
+            reloadVal = target.GetTestLength().Reload_End;
+        }
+        SetQVBool(AnimatorValues.hash_NextStep_Reload, false);
+
+        //Debug.Log("AnimateReloadEndWeapon : " + reloadVal);
+        var reloadLoopState = qv.GetStateBehavior<AnimatorState_QV_Reload_Loop>(AnimatorValues.state_QV_Upper_Reload_Loop);
+        if(reloadLoopState != null)
+            reloadLoopState.ActLoopEnd = null;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadLoopState is NULL");
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_Reload_End, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Reload_End, reloadVal);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Reload_End, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Reload_End, reloadVal);
+
+        var reloadEndState = qv.GetStateBehavior<AnimatorState_QV_Reload_End>(AnimatorValues.state_QV_Upper_Reload_End);
+        if(reloadEndState != null)
+        {
+            reloadEndState.ActEnd =
+            () =>//
+            {
+                SetPVLayerWeight(AnimatorValues.SitLayer, 1);
+                SetPVBool(AnimatorValues.hash_Sit, axProperty.IsSit);
+                axProperty.IsReload = false;
+                InitializeAnimationSpeed();
+                target.IsReloading = false;
+                //Debug.Log("Animator.Find = " + AnimatorValues.Find(qv.CurrentBaseState));
+                if (qv != null && qv.CurrentBaseState != AnimatorValues.state_QV_Base_Climbing)
+                {
+                    if(axProperty.MoveDir == 0)
+                        AnimateForceIdle(axProperty.IsSit);
+                }
+                    
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadEndState is NULL");
+    }
+
+   
+    public void AnimateFireStartWeapon(AxWeapon target, int nLength, float normalizedTime, Action onEnd = null)
+    {
+        if (pv == null || target == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled ) return;
+
+        var fireStartState = pv.GetStateBehavior<AnimatorState_PV_Fire_Start>(AnimatorValues.state_PV_Base_Fire_Start);
+        if(fireStartState != null)
+            fireStartState.ActEnd = onEnd;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireStartState is NULL");
+
+        //Debug.Log("AnimateFireStartWeapon.");
+        PlayPV_ms(AnimatorValues.state_PV_Base_Fire_Start, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Fire_Start, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Fire, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Fire, nLength);
+    }
+    public void AnimateFireWeapon(AxWeapon target, int nLength, float normalizedTime, Action onEnd = null)
+    {
+        if (pv == null || target == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled) return;
+
+        var fireState = pv.GetStateBehavior<AnimatorState_PV_Fire>(AnimatorValues.state_PV_Base_Fire);
+        if(fireState != null)
+            fireState.ActEnd = onEnd;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireState is NULL");
+
+        int val = target.GetAnimationLength().Fire;
+
+        if (_AniLengthTest)
+            val = target.GetTestLength().Unarmed;
+
+
+        //Debug.Log("AnimateFireWeapon.");
+        PlayPV_ms(AnimatorValues.state_PV_Base_Fire, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Fire, val);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Fire, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Fire, val);
+    }
+    public void AnimateJumpPunch(AxWeapon target, int nLength, float normalizedTime)
+    {
+        if (target == null) return;
+        //Debug.Log("AnimateFireWeapon."+nLength+"."+normalizedTime);
+        PlayPV_ms(AnimatorValues.state_PV_Base_Fire, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Fire, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Base_JumpPunch, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetQVLength().Fire, nLength);
+    }
+    public void SetFireEndFunc(Action onEnd)
+    {
+        if (pv == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled) return;
+
+        var fireEndState = pv.GetStateBehavior<AnimatorState_PV_Fire_End>(AnimatorValues.state_PV_Base_Fire_End);
+        if (fireEndState != null)
+            fireEndState.ActEnd = onEnd;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireEndState is NULL");
+    }
+
+    public void SetFireShellFunc(Action onShell, float shellTime)
+    {
+        if (pv == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled) return;
+
+        var fireEndState = pv.GetStateBehavior<AnimatorState_PV_Fire_End>(AnimatorValues.state_PV_Base_Fire_End);
+        if (fireEndState != null)
+        {
+            fireEndState.ActShell = onShell;
+            fireEndState.ShellTime = shellTime;
+        }
+            
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireEndState is NULL");
+    }
+    public void AnimateFireEndWeapon(AxWeapon target, int nLength, float normalizedTime, Action onEnd)
+    {
+        if (pv == null || target == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled) return;
+        
+        //Debug.LogError("AnimateFireEndWeapon");
+        var fireEndState = pv.GetStateBehavior<AnimatorState_PV_Fire_End>(AnimatorValues.state_PV_Base_Fire_End);
+        if (fireEndState != null)
+        {
+            fireEndState.ActEnd = onEnd;
+        }
+            
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireEndState is NULL");
+
+        nLength = _AniLengthTest ? target.GetTestLength().Fire_End : target.GetAnimationLength().Fire_End;
+        
+        PlayPV_ms(AnimatorValues.state_PV_Base_Fire_End, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Fire_End, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Fire_End, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Fire_End, nLength);
+    }
+
+    /// <summary>
+    /// 펀치일때만 Fire 애니메이션에 펀치 함수전달 
+    /// </summary>
+    /// <param name="slot"></param>
+    public void Set_PunchPunc(WeaponSlot slot)
+    {
+        if (pv == null || pv.PVHand == null || !pv.PVHand.isActiveAndEnabled)
+            return;
+
+        var fireState = pv.GetStateBehavior<AnimatorState_PV_Fire>(AnimatorValues.state_PV_Base_Fire);
+        if (fireState != null)
+        {
+            if (slot == WeaponSlot.Fourth_Melee)
+                fireState.Punch = () => A_Punch();
+            else
+                fireState.Punch = null;
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireState is NULL");
+
+    }
+    /// <summary>
+    /// 주먹 나갈때 부르는함수
+    /// </summary>
+    public void Punch()
+    {
+
+    }
+
+    public void AnimateZoomWeapon(AxWeapon weapon, int nLength, float normalizedTime,bool _iszoom)
+    {
+        //Debug.Log("AnimateZoomWeapon : " + _iszoom);
+    }
+
+    public void AnimateUseItem(int nLength, float normalizedTime, Action action)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+
+        SkillToBack(currentSkill, null);
+        ShowPVItem(isCameraTargetedCharacter, 0);
+        ShowQVItem(!isCameraTargetedCharacter, 0);
+
+        SetPVBool(AnimatorValues.hash_NextStep_UseItem, false);
+        SetQVBool(AnimatorValues.hash_NextStep_UseItem, false);
+
+        if (!axProperty.IsZipLine)
+            SetPVLayerWeight(AnimatorValues.SitLayer, 0f);
+
+        //Debug.Log("AnimateUseItem : " + arrayConsumable[0].GetAnimationLength().UseItem_Start + " : " + arrayConsumable[0].GetQVLength().UseItem_Start + " : " + nLength);
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseItem_Start, AnimatorValues.BaseLayer
+            , normalizedTime, arrayConsumable[0].GetAnimationLength().UseItem_Start, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseItem_Start, AnimatorValues.UpperLayer
+            , normalizedTime, arrayConsumable[0].GetQVLength().UseItem_Start, nLength);
+
+        var useitemStartState = qv.GetStateBehavior<AnimatorState_QV_UseItem_Start>(AnimatorValues.state_QV_Upper_UseItem_Start);
+        if (useitemStartState != null)
+        {
+            useitemStartState.ActStart =
+                () => {
+                    if (isCameraTargetedCharacter)
+                        ShowPVHand(true);
+                };
+            useitemStartState.ActEnd = () => {
+                SetPVState(AnimatorValues.BaseLayer, AnimatorValues.state_PV_Base_UseItem_Loop);
+                SetQVState(AnimatorValues.UpperLayer, AnimatorValues.state_QV_Upper_UseItem_Loop);
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemStartState is NULL");
+
+        var useitemLoopState = qv.GetStateBehavior<AnimatorState_QV_UseItem_Loop>(AnimatorValues.state_QV_Upper_UseItem_Loop);
+        if(useitemLoopState != null)
+            useitemLoopState.ActStart = action;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemEndState is NULL");
+    }
+    public void AnimateUseItemLoop()
+    {
+        //Debug.Log("AnimateUseItemLoop");
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseItem_Loop, AnimatorValues.BaseLayer
+            , 0, arrayConsumable[0].GetAnimationLength().UseItem_Loop, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseItem_Loop, AnimatorValues.UpperLayer
+            , 0, arrayConsumable[0].GetQVLength().UseItem_Loop, 0);
+    }
+    public void AnimateUsePDALoop()
+    {
+        //Debug.Log("AnimateUsePDALoop");
+        PlayPV_ms(AnimatorValues.state_PV_Base_UsePDA_Loop, AnimatorValues.BaseLayer
+            , 0, arrayConsumable[1].GetAnimationLength().UsePDA_Loop, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UsePDA_Loop, AnimatorValues.UpperLayer
+            , 0, arrayConsumable[1].GetQVLength().UsePDA_Loop, 0);
+    }
+    public void ClearUseItemEndAction()
+    {
+        //Debug.Log("ClearUseItemEndAction");
+
+        var useitemEndState = qv.GetStateBehavior<AnimatorState_QV_UseItem_End>(AnimatorValues.state_QV_Upper_UseItem_End);
+        if (useitemEndState != null)
+            useitemEndState.ActEnd = null;
+
+        var usepdaEndState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_End>(AnimatorValues.state_QV_Upper_UsePDA_End);
+        if (usepdaEndState != null)
+            usepdaEndState.ActEnd = null;
+
+    }
+    public void AnimateUseItemEnd(int nLength, float normalizedTime, Action onEnd)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled ||  pv == null) return;
+
+        SetPVBool(AnimatorValues.hash_NextStep_UseItem, true);
+        SetQVBool(AnimatorValues.hash_NextStep_UseItem, true);
+        //Debug.Log("AnimateUseItemEnd");
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseItem_End, AnimatorValues.BaseLayer
+            , normalizedTime, arrayConsumable[0].GetAnimationLength().UseItem_End, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseItem_End, AnimatorValues.UpperLayer
+            , normalizedTime, arrayConsumable[0].GetQVLength().UseItem_End, nLength);
+        var useitemEndState = qv.GetStateBehavior<AnimatorState_QV_UseItem_End>(AnimatorValues.state_QV_Upper_UseItem_End);
+        if (useitemEndState != null)
+        {
+            useitemEndState.ActEnd
+            = () =>
+            {
+                SetPVLayerWeight(AnimatorValues.SitLayer, 1f);
+                SetPVState(AnimatorValues.BaseLayer, AnimatorValues.state_PV_Base_Idle);
+                SetQVState(AnimatorValues.UpperLayer, AnimatorValues.state_QV_Upper_Aimming);
+                UseItemEnd();
+                if (onEnd != null)
+                    onEnd();
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemEndState is NULL");
+    }
+    public void AnimateGetPDA(Action action)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled || pv == null) return;
+        //Debug.Log("AnimateGetPDA");
+        ItemToHand(AxAttachNode.RightHand, 1);
+        ShowPVItem(isCameraTargetedCharacter, 1);
+        ShowQVItem(!isCameraTargetedCharacter, 1);
+
+        if(!axProperty.IsZipLine)
+            SetPVLayerWeight(AnimatorValues.SitLayer, 0f);
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_GetPDA, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_GetPDA, AnimatorValues.UpperLayer, 0, 0, 0);
+
+        var getpdaState = qv.GetStateBehavior<AnimatorState_QV_GetPDA>(AnimatorValues.state_QV_Upper_GetPDA);
+        if (getpdaState != null)
+        {
+            getpdaState.ActStart =
+                () => {
+                    if (isCameraTargetedCharacter)
+                    {
+                        AxCameraController.Singleton.SetPvFOV(CameraValues.ItemPVFov);
+                        ShowPVHand(true);
+                    }
+                };
+            getpdaState.ActEnd
+            = () =>
+            {
+                SetPVLayerWeight(AnimatorValues.SitLayer, 1f);
+                SetPVState(AnimatorValues.BaseLayer, AnimatorValues.state_PV_Base_Idle);
+                SetQVState(AnimatorValues.UpperLayer, AnimatorValues.state_QV_Upper_Aimming);
+                action();
+                ShowPVItem(false, 1);
+                ShowQVItem(false, 1);
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour getpdaState is NULL");
+    }
+    public void AnimateUsePDA(int nLength, float normalizedTime)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled || pv == null) return;
+
+        SkillToBack(currentSkill, null);
+        //Debug.Log("AnimateUsePDA");
+        SetPVBool(AnimatorValues.hash_NextStep_UsePDA, false);
+        SetQVBool(AnimatorValues.hash_NextStep_UsePDA, false);
+
+        if (!axProperty.IsZipLine)
+            SetPVLayerWeight(AnimatorValues.SitLayer, 0f);
+
+        PlayPV_ms(AnimatorValues.state_PV_Base_UsePDA_Start, AnimatorValues.BaseLayer, normalizedTime, arrayConsumable[1].GetAnimationLength().UsePDA_Start, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UsePDA_Start, AnimatorValues.UpperLayer, normalizedTime, arrayConsumable[1].GetQVLength().UsePDA_Start, nLength);
+
+        var usepdaStartState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_Start>(AnimatorValues.state_QV_Upper_UsePDA_Start);
+        if (usepdaStartState != null)
+        {
+            usepdaStartState.ActStart = 
+                () => {
+                    if (isCameraTargetedCharacter)
+                        ShowPVHand(true);
+
+                    ShowPVItem(axProperty.IsCameraTarget, 1);
+                    ShowQVItem(!axProperty.IsCameraTarget, 1);
+
+                };
+            usepdaStartState.ActEnd = 
+            () => {
+                SetPVState(AnimatorValues.BaseLayer, AnimatorValues.state_PV_Base_UsePDA_Loop);
+                SetQVState(AnimatorValues.UpperLayer, AnimatorValues.state_QV_Upper_UsePDA_Loop);
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour usepdaState is NULL");
+    }
+   
+    public void AnimateUsePDAEnd(int nLength, float normalizedTime, Action onEnd)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled || pv == null)
+        {
+            //Debug.Log("AnimateUsePDAEnd.FAILED."+ qv.QVBody.isActiveAndEnabled);
+            return;
+        }
+        
+        var usepdaEndState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_End>(AnimatorValues.state_QV_Upper_UsePDA_End);
+        //Debug.Log("AnimateUsePDAEnd."+usepdaEndState);
+        if (usepdaEndState != null)
+        {
+            usepdaEndState.ActEnd
+            = () =>
+            {
+                SetPVLayerWeight(AnimatorValues.SitLayer, 1f);
+                SetPVState(AnimatorValues.BaseLayer, AnimatorValues.state_PV_Base_Idle);
+                SetQVState(AnimatorValues.UpperLayer, AnimatorValues.state_QV_Upper_Aimming);
+                UsePDAEnd();
+                if (onEnd != null)
+                    onEnd();
+            };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour usepdaEndState is NULL");
+
+        SetPVBool(AnimatorValues.hash_NextStep_UsePDA, true);
+        SetQVBool(AnimatorValues.hash_NextStep_UsePDA, true);
+        PlayPV_ms(AnimatorValues.state_PV_Base_UsePDA_End, AnimatorValues.BaseLayer
+            , normalizedTime, arrayConsumable[1].GetAnimationLength().UsePDA_End, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UsePDA_End, AnimatorValues.UpperLayer
+            , normalizedTime, arrayConsumable[1].GetQVLength().UsePDA_End, nLength);
+
+
+        
+    }
+    
+
+    void UsePDAEnd()
+    {
+        //Debug.Log("UsePDAEnd");
+        ShowPVItem(false, 1);
+        ShowQVItem(false, 1);
+    }
+    void UseItemEnd()
+    {
+        //Debug.Log("UseItemEnd");
+        ShowPVItem(false, 0);
+        ShowQVItem(false, 0);
+    }
+    void ThrowReady()
+    {
+        if (axProperty == null) return;
+        if (axProperty.IsThrow == true)
+        {
+            axProperty.IsThrowReady = true;
+        }
+        //Debug.Log("ThrowReady:"+ axProperty.IsThrowReady);
+    }
+    void SkillReady()
+    {
+        if (axProperty == null) return;
+        //Debug.Log("SkillReady");
+        axProperty.IsSkillReady = true;
+    }
+    void InitializeAnimationSpeed()
+    {
+        if (pv == null || qv == null) return;
+        pv.SetAnimatorSpeed(1f);
+        qv.SetAnimatorSpeed(AnimatorValues.BaseLayer, 1f);
+        qv.SetAnimatorSpeed(AnimatorValues.UpperLayer, 1f);
+        qv.SetAnimatorSpeed(AnimatorValues.SyncLayer, 1f);
+    }
+
+    public void AnimateThrowStartWeapon(AxWeapon target, int nLength, float normalizedTime)
+    {
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        SetPVBool(AnimatorValues.hash_NextStep_Throw, false);
+        SetQVBool(AnimatorValues.hash_NextStep_Throw, false);
+
+        var throwStartState = qv.GetStateBehavior<AnimatorState_QV_Throw_Start>(AnimatorValues.state_QV_Upper_Throw_Start);
+        if(throwStartState != null)
+            throwStartState.ActEnd = () => ThrowReady();
+        else
+            Debug.LogErrorFormat("GetStateBehaviour throwStartState is NULL");
+        //Debug.Log("AnimateThrowStartWeapon");
+        PlayPV_ms(AnimatorValues.state_PV_Base_Throw_Start, AnimatorValues.BaseLayer
+            , normalizedTime, target.GetAnimationLength().Throw_Start, nLength);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Throw_Start, AnimatorValues.UpperLayer
+            , normalizedTime, target.GetQVLength().Throw_Start, nLength);
+    }
+
+    /// <summary>
+    /// 수류탄 던질때 부르는함수
+    /// </summary>
+    public void Throw(AxWeapon target)
+    { 
+        if(target == null) return;
+        target.ShowPV(false);
+        target.ShowQV(false);
+    }
+    public void AnimateThrowLoopWeapon()
+    {
+        //Debug.Log("AnimateThrowLoopWeapon");
+        PlayPV_ms(AnimatorValues.state_PV_Base_Throw_Loop, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_Throw_Loop, AnimatorValues.UpperLayer, 0, 0, 0);
+    }
+    public void AnimateThrowEndWeapon(AxWeapon target, int nLength, float normalizedTime, bool throwReady, Action onEnd)
+    {//
+        if (qv == null || target == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+
+        SetPVBool(AnimatorValues.hash_NextStep_Throw, true);
+        SetQVBool(AnimatorValues.hash_NextStep_Throw, true);
+
+        var throwEndState = qv.GetStateBehavior<AnimatorState_QV_Throw_End>(AnimatorValues.state_QV_Upper_Throw_End);
+        if(throwEndState != null)
+        {
+            throwEndState.ActEnd = onEnd;
+            throwEndState.Throw = () => A_Throw();
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour throwEndState is NULL");
+        //Debug.Log("AnimateThrowEndWeapon");
+        if (throwReady)
+        {
+            CrossFadePV_ms(AnimatorValues.state_PV_Base_Throw_End, 0.1f, AnimatorValues.BaseLayer
+            , normalizedTime, 0.1f, target.GetAnimationLength().Throw_End, nLength);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Upper_Throw_End, 0.1f, AnimatorValues.UpperLayer
+                , normalizedTime, 0.1f, target.GetQVLength().Throw_End, nLength);
+        }
+    }
+
+    void ThrowEnd()//던지기 끝나고 수류탄이 남아있으면 수류탄으로 아니면 다른무기로 자동변경
+    {
+        if (axProperty == null) return;
+
+        axProperty.IsThrow = false;
+        axProperty.IsThrowReady = false;
+        axProperty.IsThrowReserved = false;
+    }
+    void SkillEnd()
+    {
+        if (axProperty == null) return;
+
+        axProperty.IsSkillReady= false;
+        axProperty.IsSkillReserved = false;
+    }
+    
+    public void AnimateStandToDown()
+    {
+        //Debug.Log("AnimateStandToDown");
+
+        DettachJetPack();
+        ShowJetPack(false);
+        DestroyJetPack();
+
+        PlayQV_ms(AnimatorValues.state_QV_Base_StandToDown, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateStandToSit()
+    {
+        //Debug.Log("AnimateStandToSit");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_StandToSit, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+
+        //PlayQV_ms(AnimatorValues.state_QV_Base_StandToSit, AnimatorValues.BaseLayer, 0, 0, 0);
+        //pv.SetFloat(팔 기울이기 어느 값이 들어가느냐에 따라서 세팅 해줄것. )
+    }
+    public void AnimateSitToStand()
+    {
+        //Debug.Log("AnimateSitToStand");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_SitToStand, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+        //PlayQV_ms(AnimatorValues.state_QV_Base_SitToStand, AnimatorValues.BaseLayer, 0, 0, 0);
+        //pv.SetFloat(팔 기울이기 어느 값이 들어가느냐에 따라서 세팅 해줄것. )
+    }
+    public void AnimateDownMove()
+    {
+        //Debug.Log("AnimateDownMove : " + IsStatePlaying(AnimatorValues.state_QV_Base_DownMove));
+        PlayPV_ms(AnimatorValues.state_PV_Base_DownMove, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Base_DownMove, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimatePVSliding()
+    {
+        //Debug.Log("AnimatePVSliding");
+        CrossFadePV_ms(AnimatorValues.state_PV_Base_Sliding, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+    }
+    public void AnimateStandToSlide()
+    {
+        //Debug.Log("AnimateStandToSlide");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_StandToSlide, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+
+        //PlayQV_ms(AnimatorValues.state_QV_Base_StandToSit, AnimatorValues.BaseLayer, 0, 0, 0);
+        //pv.SetFloat(팔 기울이기 어느 값이 들어가느냐에 따라서 세팅 해줄것. )
+    }
+    public void AnimateSitToSlide()
+    {
+        //Debug.Log("AnimateSitToSlide");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_SitToSlide, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+        //PlayQV_ms(AnimatorValues.state_QV_Base_SitToStand, AnimatorValues.BaseLayer, 0, 0, 0);
+        //pv.SetFloat(팔 기울이기 어느 값이 들어가느냐에 따라서 세팅 해줄것. )
+    }
+    public void AnimateRushPV()
+    {
+        if (pv == null) return;
+        //어차피 러쉬중에 총 못쏘므로 걸러낼 필요 없음. 
+        //Debug.Log("AnimateRushPV : " + IsPVWorks());
+        if(!IsPVWorks())
+        {
+            if(pv.CurrentBaseState != AnimatorValues.state_PV_Base_Rush)
+                CrossFadePV_ms(AnimatorValues.state_PV_Base_Rush, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0f, 0f);
+            PlayQV_ms(AnimatorValues.state_QV_Upper_Aimming, AnimatorValues.UpperLayer, 0f, 0, 0);
+        }
+    }
+    public void AnimateRushQV()
+    {
+        if (qv == null) return;
+        //Debug.Log("AnimateRushQV : " + AnimatorValues.Find(qv.CurrentBaseState));
+        if(qv.CurrentBaseState != AnimatorValues.state_QV_Base_Rush)
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_Rush, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0, 0);
+    }
+    public void AnimateStandMovePV(bool forced = false)
+    {
+        //Debug.Log("AnimateStandMove : " + IsPVWorks() + " : " + forced);
+        
+        if(!forced)
+        {
+            if (!IsPVWorks())
+                CrossFadePV_ms(AnimatorValues.state_PV_Base_Move, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+        }
+        else
+        {
+            if(!IsReloadAnimationWorks())
+                CrossFadePV_ms(AnimatorValues.state_PV_Base_Move, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+        }
+        
+
+    }
+    public void AnimateStandMoveQV()
+    {
+        //Debug.Log("AnimateStandMoveQV");
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_StandMove) && !IsStatePlaying(AnimatorValues.state_QV_Base_SlideToStand))
+        {
+            SetQVFloat(AnimatorValues.hash_StandType, 0);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_StandMove, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+        }
+    }
+
+    public void AnimateSitMovePV(bool forced = false)
+    {
+        //Debug.Log("AnimateSitMovePV " + forced);
+
+        if(!forced)
+        {
+            if (!IsPVWorks())
+                CrossFadePV_ms(AnimatorValues.state_PV_Base_Move, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+        }
+        else
+            CrossFadePV_ms(AnimatorValues.state_PV_Base_Move, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+    }
+    public void AnimateSitMoveQV()
+    {
+        //Debug.Log("AnimateSitMoveQV ");
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_SitMove) && !IsStatePlaying(AnimatorValues.state_QV_Base_SlideToSit))
+        {
+            SetQVFloat(AnimatorValues.hash_StandType, 1);      
+        }
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_SitMove, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+        
+    }
+    public void AnimateJumpPV()
+    {
+        //Debug.Log("AnimateJumpPV ");
+        if (!IsPVWorks())
+        {
+            SetPVBool(AnimatorValues.hash_NextStep_Land, false);
+            PlayPV_ms(AnimatorValues.state_PV_Sit_Jump_Start, AnimatorValues.SitLayer, 0, 0, 0);
+        }
+    }
+    public void AnimateJumpQV()
+    {
+        //Debug.Log("AnimateJumpQV ");
+        SetQVFloat(AnimatorValues.hash_StandType, 0);
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_Jump, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+    public void AnimateLanding(AxWeapon target, bool isStuned, int nLength, float normalizedTime)
+    {
+        if (target == null)
+        {
+            Debug.LogError("LandingAnimation IS NULL");
+            return;
+        }
+        
+        if (IsReloadAnimationWorks())
+            return;
+        if (IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveLanding))
+            return;
+
+        SetPVBool(AnimatorValues.hash_NextStep_Land, true);
+        //Debug.Log("AnimateLanding ");
+        if (isStuned)
+        {
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_Landing, 0.1f, AnimatorValues.BaseLayer
+           , normalizedTime, 0.1f, target.GetQVLength().Landing, nLength);
+        }
+    }
+
+    public void AnimatePreParkourmotion()
+    {
+        PlayPV_ms(AnimatorValues.state_PV_Base_Idle, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateParkourStart()
+    {
+        //Debug.Log("AnimateParkourStart ");
+        SetQVLayerWeight(AnimatorValues.UpperLayer, 0f);
+        
+        PlayPV_ms(AnimatorValues.state_PV_Sit_Parkour, AnimatorValues.SitLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Base_Parkour, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayAudioEvent(BRAudioEvent.EventType.Parkour_M_Up_0);
+    }
+    public void AnimateParkourEnd()
+    {
+        //Debug.Log("AnimateParkourEnd ");
+        SetQVLayerWeight(AnimatorValues.UpperLayer, 1f);
+    }
+    public void AnimateClimbing()
+    {
+        //Debug.Log("AnimateClimbing ");
+        PlayQV_ms(AnimatorValues.state_QV_Base_Climbing, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateSliding()
+    {
+        //Debug.Log("AnimateSliding ");
+        SetQVFloat(AnimatorValues.hash_StandType, 1);
+        PlayPV_ms(AnimatorValues.state_PV_Base_Sliding, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Base_Sliding, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+
+    public void AnimateSlideToSit()
+    {
+        //Debug.Log("AnimateSlideToSit ");
+        //PlayPV_ms(AnimatorValues.state_PV_Base_Idle, AnimatorValues.BaseLayer, 0, 0, 0);
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_SlideToSit)  && !IsStatePlaying(AnimatorValues.state_QV_Base_Idle))
+        {
+            SetQVFloat(AnimatorValues.hash_StandType, 1);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_SlideToSit, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+        }
+        
+    }
+    public void AnimateSlideToStand()
+    {
+        //Debug.Log("2");
+        //PlayPV_ms(AnimatorValues.state_PV_Base_Idle, AnimatorValues.BaseLayer, 0, 0, 0);
+
+        //Debug.Log("AnimateSlideToStand ");
+        if (!IsStatePlaying(AnimatorValues.state_QV_Base_SlideToStand) )
+        {
+            SetQVFloat(AnimatorValues.hash_StandType, 0);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_SlideToStand, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+        }
+        
+    }
+    public void AnimateZipLine()
+    {
+        //Debug.Log("AnimateZipLine");
+        CrossFadePV_ms(AnimatorValues.state_PV_Sit_ZipLine_Start, 0.1f, AnimatorValues.SitLayer, 0, 0.1f, 0, 0);
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_ZipLine_Start, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+    public void AnimateZipLineEnd()
+    {
+        //Debug.Log("AnimateZipLineEnd");
+        CrossFadePV_ms(AnimatorValues.state_PV_Sit_ZipLine_End, 0.1f, AnimatorValues.SitLayer, 0, 0.1f, 0, 0);
+
+    }
+    public void ClearGroggyCareAction()
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+        //Debug.Log("ClearGroggyCareAction");
+        var groggycareActorStartState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Actor_Start>(AnimatorValues.state_QV_Base_GorggyCare_Actor_Start);
+        if (groggycareActorStartState != null)
+        {
+            groggycareActorStartState.ActShow = null;
+            groggycareActorStartState.ActEnd = () => { qv.SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle); };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour groggycareActorStartState is NULL");
+
+        var groggycareTargetStartState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Target_Start>(AnimatorValues.state_QV_Base_GorggyCare_Target_Start);
+        if (groggycareTargetStartState != null)
+        {
+            groggycareTargetStartState.ActEnd = () => { qv.SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle); };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour groggycareTargetStartState is NULL");
+    }
+    public void ClearGroggyCareEndAction()
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+        //Debug.Log("ClearGroggyCareeEndAction");
+        var groggycareActorEndState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Actor_End>(AnimatorValues.state_QV_Base_GorggyCare_Actor_End);
+        if (groggycareActorEndState != null)
+        {
+            groggycareActorEndState.ActEnd = null ;
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour groggycareActorEndState is NULL");
+    }
+    public void AnimateGroggyCareActorStart(Action onShow)
+    {
+        //Debug.Log("AnimateGroggyCareActorStart");
+        var groggycareActorStartState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Actor_Start>(AnimatorValues.state_QV_Base_GorggyCare_Actor_Start);
+        if (groggycareActorStartState != null)
+        {
+            groggycareActorStartState.ActShow = onShow;
+            groggycareActorStartState.ActEnd = () => { qv.SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_GorggyCare_Actor_Loop); };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour groggycareActorStartState is NULL");
+
+        PlayQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Actor_Start, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateGroggyCareActorLoop()
+    {
+        //Debug.Log("AnimateGroggyCareActorLoop");
+        PlayQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Actor_Loop, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateGroggyCareActorEnd(Action onHide, Action onEnd)
+    {
+        if (qv == null || qv.QVBody == null)
+            return;
+
+
+        var groggycareActorEndState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Actor_End>(AnimatorValues.state_QV_Base_GorggyCare_Actor_End);
+        if (groggycareActorEndState != null)
+        {
+            groggycareActorEndState.ActHide = onHide;
+
+            groggycareActorEndState.ActEnd =
+            () =>
+            {
+                if (onEnd != null)
+                    onEnd();
+                
+                //Debug.LogError("ActorEnd");
+                SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle);
+                CrossFadePV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0, 0.1f, 0, 0);
+            };
+        }
+        else
+        {
+            if (onEnd != null)
+                onEnd();
+            //Debug.LogError("ActorEnd");
+            SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle);
+            //Debug.LogErrorFormat("GetStateBehaviour groggycareActorEndState is NULL. Do OnEnd Instant");
+        }
+            
+
+        //Debug.Log("AnimateGroggyCareActorEnd");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Actor_End, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+    public void AnimateGroggyCareTargetStart()
+    {
+        //Debug.Log("AnimateGroggyCareTargetStart");
+        var groggycareTargetStartState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Target_Start>(AnimatorValues.state_QV_Base_GorggyCare_Target_Start);
+        if (groggycareTargetStartState != null)
+        {             
+            groggycareTargetStartState.ActEnd = () => { qv.SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_GorggyCare_Target_Loop); };
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour groggycareTargetStartState is NULL");
+
+        PlayQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Target_Start, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateGroggyCareTargetLoop()
+    {
+        //Debug.Log("AnimateGroggyCareTargetLoop");
+        PlayQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Target_Loop, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void AnimateGroggyCareTargetEnd(Action onEnd)
+    {
+        if (qv == null || qv.QVBody == null)
+        {
+            return;
+        }
+            
+        
+        var groggycareTargetEndState = qv.GetStateBehavior<AnimatorState_QV_GroggyCare_Target_End>(AnimatorValues.state_QV_Base_GorggyCare_Target_End);
+        if (groggycareTargetEndState != null)
+        {
+            groggycareTargetEndState.ActEnd =
+            () =>
+            {
+                if (onEnd != null)
+                    onEnd();
+                //Debug.LogError("TargetEnd");
+                SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle);
+                CrossFadePV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0, 0.1f, 0, 0);
+            };
+        }
+        else
+        {
+            if (onEnd != null)
+                    onEnd();
+            
+            SetQVState(AnimatorValues.BaseLayer, AnimatorValues.state_QV_Base_Idle);
+            //CrossFadePV_ms(AnimatorValues.state_QV_Upper_Aimming, 0.1f, AnimatorValues.UpperLayer, 0, 0.1f, 0, 0);
+            //Debug.LogErrorFormat("GetStateBehaviour groggycareTargetEndState is NULL. Do OnEnd Instant");
+        }
+            
+        //Debug.Log("AnimateGroggyCareTargetEnd");
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_GorggyCare_Target_End, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+
+    public void AnimateSkyDiveMove( bool bForce = false )
+    {
+        //Debug.Log("AnimateSkyDiveMove");
+        if ((!IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveMove) && !IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveSlowDown) && !IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveLanding)) || bForce )
+        {
+            ShowJetPack(true);
+            PlayQV_ms(AnimatorValues.state_QV_Base_SkyDiveMove, AnimatorValues.BaseLayer, 0, 0, 0);
+        }
+    }
+    public void AnimateSkyDiveSlowDown(bool bForce = false)
+    {
+        //Debug.Log("AnimateSkyDiveSlowDown");
+        if ((!IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveSlowDown)
+            && !IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveSlowDownIdle)) || bForce )
+            CrossFadeQV_ms(AnimatorValues.state_QV_Base_SkyDiveSlowDown, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+    public void AnimateSkyDiveLanding()
+    {
+        //if(!IsStatePlaying(AnimatorValues.state_QV_Base_SkyDiveLanding))
+        //Debug.Log("AnimateSkyDiveLanding");
+        DettachJetPack();
+        ShowJetPack(false);
+        DestroyJetPack();
+        CrossFadeQV_ms(AnimatorValues.state_QV_Base_SkyDiveLanding, 0.1f, AnimatorValues.BaseLayer, 0, 0.1f, 0, 0);
+    }
+    public void AnimateRevive()
+    {
+        //Debug.Log("AnimateRevive");
+        PlayQV_ms(AnimatorValues.state_QV_Base_Revive, AnimatorValues.BaseLayer, 0, 0, 0);
+    }
+    public void Animate1MotionSkill(float prevTime, float msTime, float normalizedTime, Action onEnd)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+
+        var useitemEndState = qv.GetStateBehavior<AnimatorState_QV_UseItem_End>(AnimatorValues.state_QV_Upper_UseItem_End);
+        if(useitemEndState != null)
+            useitemEndState.ActEnd = null;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemEndState is NULL");
+
+        //Debug.Log("Animate1MotionSkill");
+        //PlayPV(스킬모션 있나?);
+        //pv.SetAnimatorSpeed(1);
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseSkill, AnimatorValues.BaseLayer, normalizedTime, prevTime, msTime);
+        //qv.SetAnimatorSpeed(1);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseSkill, AnimatorValues.UpperLayer, normalizedTime, prevTime, msTime);
+
+        
+        var useskillState = qv.GetStateBehavior<AnimatorState_QV_UseSkill>(AnimatorValues.state_QV_Upper_UseSkill);
+        if(useskillState != null)
+            useskillState.ActEnd = onEnd;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useskillState is NULL");
+    }
+    public void SetAnimate1MotionSkill(Action useSkill,float useSkillTime)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        var useskillState = qv.GetStateBehavior<AnimatorState_QV_UseSkill>(AnimatorValues.state_QV_Upper_UseSkill);
+        if(useskillState != null)
+            useskillState.AddAdditionalSkill(useSkill, useSkillTime);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useskillState is NULL");
+    }
+    public void Animate3MotionSkillStart(float prevTime, float msTime, float normalizedTime)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+
+        //Debug.Log("Animate3MotionSkillStart");
+
+        var useitemEndState = qv.GetStateBehavior<AnimatorState_QV_UseItem_End>(AnimatorValues.state_QV_Upper_UseItem_End);
+        if(useitemEndState != null)
+            useitemEndState.ActEnd = null;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemEndState is NULL");
+        //스킬 실행에 쓰이는 값 초기화 
+
+        //Debug.Log("Animate3MotionSkillStart");
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseSkill_Start, AnimatorValues.BaseLayer, normalizedTime, prevTime, msTime);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseSkill_Start, AnimatorValues.UpperLayer, normalizedTime, prevTime, msTime);
+
+        var useskillStartState = qv.GetStateBehavior<AnimatorState_QV_UseSkill_Start>(AnimatorValues.state_QV_Upper_UseSkill_Start);
+        if(useskillStartState != null)
+            useskillStartState.ActEnd = () => { AnimateSkillLoop(); SkillReady(); };
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useskillStartState is NULL");
+    }
+    public void AnimateSkillLoop()
+    {
+        //Debug.Log("Animate3MotionSkillLoop");
+        PlayPV_ms(AnimatorValues.state_PV_Base_UseSkill_Loop, AnimatorValues.BaseLayer, 0, 0, 0);
+        PlayQV_ms(AnimatorValues.state_QV_Upper_UseSkill_Loop, AnimatorValues.UpperLayer, 0, 0, 0);
+    }
+    public void Animate3MotionSkillEnd(float prevTime, float msTime, float normalizedTime, bool isThrowReady, Action onEnd, Action doSkillPlayer)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled) return;
+        //PlayPV(스킬모션 있나?);
+
+        SetPVBool(AnimatorValues.hash_NextStep_UseSkill, true);
+        SetQVBool(AnimatorValues.hash_NextStep_UseSkill, true);
+
+        var useskillStartState = qv.GetStateBehavior<AnimatorState_QV_UseSkill_Start>(AnimatorValues.state_QV_Upper_UseSkill_Start);
+        if (useskillStartState != null)
+            useskillStartState.ActEnd = () => { SkillReady(); };
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useskillStartState is NULL");
+
+        var useskillEndState = qv.GetStateBehavior<AnimatorState_QV_UseSkill_End>(AnimatorValues.state_QV_Upper_UseSkill_End);
+        //Debug.Log("Animate3MotionSkillEnd : " + useskillEndState);
+
+        if (useskillEndState != null)
+        {
+            useskillEndState.ActStart = () => {
+                SetPVBool(AnimatorValues.hash_NextStep_UseSkill, false);
+                SetQVBool(AnimatorValues.hash_NextStep_UseSkill, false);
+            };
+            useskillEndState.Throw = () => { A_Throw(); if(doSkillPlayer != null) doSkillPlayer(); };
+
+            //Debug.Log("Animate3MotionSkillEnd : " + useskillEndState + " : " + (onEnd == null));
+            useskillEndState.ActEnd = onEnd;
+        }
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useskillEndState is NULL");
+
+        if (isThrowReady)
+        {
+            CrossFadePV_ms(AnimatorValues.state_PV_Base_UseSkill_End, 0.1f, AnimatorValues.BaseLayer, normalizedTime, 0.1f, prevTime, msTime);
+            CrossFadeQV_ms(AnimatorValues.state_QV_Upper_UseSkill_End, 0.1f, AnimatorValues.UpperLayer, normalizedTime, 0.1f, prevTime, msTime);
+        }
+    }
+
+    public void AnimateEmote(float id, Action onEnd, bool bInGame = false)
+    {
+        var emoteState = qv.GetStateBehavior<AnimatorState_QV_Emote>(AnimatorValues.state_QV_Emote);
+        if (emoteState != null)
+        {
+            ///emoteState.ActEnd = () => { onEnd(); };
+            emoteState.AddActionEnd(id, onEnd, bInGame);
+        }
+        else
+        {
+            Debug.LogErrorFormat("GetStateBehaviour emoteState is NULL");
+        }
+
+        //Debug.Log("AnimateEmote");
+
+        SetQVFloat(AnimatorValues.hash_EmoteType, id);
+        // Effect Play
+        // Sound Play
+        CrossFadeQV_ms(AnimatorValues.state_QV_Emote, 0.01f, AnimatorValues.BaseLayer, 0f, 0.01f, 0, 0);
+    }
+
+    public void ClearEmoteActions()
+    {
+        var emoteState = qv.GetStateBehavior<AnimatorState_QV_Emote>(AnimatorValues.state_QV_Emote);
+        if (emoteState != null)
+        {
+            emoteState.ClearActions();
+        }
+        else
+        {
+            Debug.LogErrorFormat("GetStateBehaviour emoteState is NULL");
+        }
+    }
+#endregion
+#region 애니메이션 컨트롤 (외부 호출)
+    public void SetPVLayerWeight(int layer, float weight)
+    {
+        if (pv == null) return;
+        //if (layer == AnimatorValues.SitLayer)
+        //    Debug.LogError("SetPVLayerWeight" + layer + " : " + weight + " : " + Name);
+        pv.SetLayerWeight(layer, weight);
+    }
+    public void SetQVLayerWeight(int layer, float weight)
+    {
+            
+        if (qv == null) return;
+        if (weight < 0f)
+            weight = 0.01f;
+
+        //if (layer == AnimatorValues.UpperLayer)
+        //    Debug.LogError("SetQVLayerWeight" + layer + " : " + weight + " : " + Name);
+
+        qv.SetLayerWeight(layer, weight);
+    }
+    public void SetDirection(float vertical, float horizontal)
+    {
+        SetPVFloat(AnimatorValues.hash_MoveHorizontal, horizontal);
+        SetPVFloat(AnimatorValues.hash_MoveVertical, vertical);
+
+        SetQVFloat(AnimatorValues.hash_MoveHorizontal, horizontal);
+        SetQVFloat(AnimatorValues.hash_MoveVertical, vertical);
+    }
+    public void SetPVAnimatorSpeed(float val)
+    {
+        if (pv == null) return;
+        pv.SetAnimatorSpeed(val);
+    }
+    public void SetQVAnimatorSpeed(int layer, float val)
+    {
+        if (qv == null) return;
+        qv.SetAnimatorSpeed(layer, val);
+    }
+    public void SetPVFloat(int hash, float val)
+    {
+        if (pv == null) return;
+        pv.SetFloat(hash, val);
+    }
+    
+    public void SetQVFloat(int hash, float val)
+    {
+        if (qv == null) return;
+        qv.SetFloat(hash, val);
+    }
+
+    public float GetPVFloat(int hash)
+    {
+        if (pv == null) return 0;
+        return pv.GetFloat(hash);
+    }
+    public float GetQVFloat(int hash)
+    {
+        if (qv == null) return 0;
+        return qv.GetFloat(hash);
+    }
+    public void SetPVInt(int hash, int val)
+    {
+        if (pv == null) return;
+        pv.SetInt(hash, val);
+    }
+    public void SetQVInt(int hash, int val)
+    {
+        if (qv == null) return;
+        qv.SetInt(hash, val);
+    }
+    public void SetPVBool(int hash, bool val)
+    {
+        if (pv == null) return;
+        //if (hash == AnimatorValues.hash_NextStep_Arms_Postmotion)
+        //    Debug.LogError("SetPVBool : " + val);
+        pv.SetBool(hash, val);
+    }
+
+    public bool GetPVBool(int hash)
+    {
+        if (pv == null) return false;
+        return pv.GetBool(hash);
+    }
+    public void SetQVBool(int hash, bool val)
+    {
+        if (qv == null) return;
+        qv.SetBool(hash, val);
+    }
+    public bool GetQVBool(int hash)
+    {
+        if (qv == null) return false;
+        return qv.GetBool(hash);
+    }
+
+    public float GetQVAniCurrentTime()
+    {
+        if (qv == null) return 0f;
+
+        var state = qv.GetStateBehavior<IAnimatorState>(qv.CurrentUpperState);
+
+        //Debug.LogFormat("GetQVAniCurTime = {0}", AnimatorValues.Find((qv.CurrentUpperState)));
+        if (state != null)
+            return state.CurrentTime;
+        else
+            return 0f;
+    }
+    #endregion
+    #region 값 호출
+    public bool IsStatePlaying(int state)
+    {
+        if (qv == null)
+            return false;
+
+        //if(state == AnimatorValues.state_QV_Base_SkyDiveLanding)
+        //{
+        //    Debug.Log("IsStatePlaying : " + state + " : " + qv.CurrentBaseState + " : " + qv.CurrentUpperState);
+        //}
+        //if (Name.Equals("DarkMan") && state == AnimatorValues.state_QV_Base_SkyDiveLanding)
+        //    Debug.Log("Find : " + AnimatorValues.Find(state) + " : " + AnimatorValues.Find(qv.CurrentUpperState)
+        //        + " : " + AnimatorValues.Find(qv.CurrentBaseState));
+
+        if (state == qv.CurrentBaseState || state == qv.CurrentUpperState)
+            return true;
+        return false;
+    }
+
+    public void SetPVState(int layer, int state)
+    {
+        if (pv == null)
+            return;
+        pv.SetPVState(layer, state);
+    }
+    void SetQVState(int layer, int state)
+    {
+        if (qv == null) return;
+        qv.SetQVState(layer, state);
+    }
+    public bool IsPVStatePlaying(int state)
+    {
+        if (pv == null)
+            return false;
+
+        if (state == pv.CurrentBaseState)
+            return true;
+        return false;
+    }
+
+	public int GetCurrentPVState()
+	{
+		if (pv == null)
+			return 0;
+
+		return pv.CurrentBaseState;
+	}
+#endregion
+
+#region UI
+    public void AddUIWeapon(AxWeapon weapon)
+    {
+        //if (qv == null || arrayWeapon == null)
+        //{
+        //    Debug.LogError("AddWeapon Slot Over/Under flows");
+        //    return;
+        //}
+        //if (weapon.QVWeapon == null)
+        //    return;
+
+        //if (arrayWeapon[0] != null)
+        //{
+        //    DestroyImmediate(arrayWeapon[0].QVWeapon.gameObject);
+        //    arrayWeapon[0] = null;
+        //}
+        //arrayWeapon[0] = weapon;
+
+        //qv.AddWeapon(weapon.ID, weapon.Slot, weapon.QVWeapon);
+
+        if (qv != null && weapon != null && weapon.QVWeapon != null)
+            qv.ToHand(AxAttachNode.RightHand, weapon.QVWeapon.transform);
+    }
+    public void UI_SetIdleType( float val)
+    {
+        if (qv == null) return;
+        qv.SetFloat(AnimatorValues.hash_UI_IdleType, val);
+    }
+    public void UI_SetSelectType(float val)
+    {
+        if (qv == null) return;
+        qv.SetFloat(AnimatorValues.hash_UI_SelectType, val);
+    }
+    public void AnimateUICharacterIdle()
+    {
+        //Debug.Log("AnimateUICharacterIdle");
+        PlayQV_ms(AnimatorValues.state_UI_Character_Idle, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+    public void AnimateUIShopIdle()
+    {
+        //Debug.Log("AnimateUIShopIdle");
+        PlayQV_ms(AnimatorValues.state_UI_Shop_Idle, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+    public void AnimateUISelectCharacter()
+    {
+        //Debug.Log("AnimateUISelectCharacter");
+        PlayQV_ms(AnimatorValues.state_UI_SelectCharacter, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+    public void AnimateUIShort()
+    {
+        //Debug.Log("AnimateUIIShort");
+        PlayQV_ms(AnimatorValues.state_UI_Short, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+    public void AnimateUIIdentity()
+    {
+        //Debug.Log("AnimateUIIdentity");
+        PlayQV_ms(AnimatorValues.state_UI_Identity, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+    public void AnimateUISelect()
+    {
+        //Debug.Log("AnimateUISelect");
+        PlayQV_ms(AnimatorValues.state_UI_Select, AnimatorValues.BaseLayer, 0f, 0f, 0f);
+    }
+
+    public void SetUIIdleFunc(Action onStart)
+    {
+        if (qv == null)
+            return;
+        qv.SetUIIdleFunc(onStart);
+    }
+    #endregion
+    public void AnimateMuzzleEffect(AxWeapon currentWeapon,bool isZoom)
+    {
+        if (currentWeapon == null)
+            return;
+
+        if (pv == null || qv == null) return;
+        //Debug.Log("AnimateMuzzleEffect");
+        pv.AnimateMuzzleEffect(currentWeapon, isZoom);
+        if (currentWeapon.ShellType == 0)
+            AnimateShellEffect(currentWeapon);
+        qv.AnimateMuzzleEffect(currentWeapon);
+    }
+
+    public void AnimateShellEffect(AxWeapon currentWeapon)
+    {
+        if (currentWeapon == null)
+            return;
+        if (pv == null || qv == null) return;
+
+        pv.AnimateShellEffect(currentWeapon);
+    }
+         
+    public Vector3 GetQVHeadPosition()
+    {
+        if (qv == null || qv.QVBody == null || qv.QVBody.Head == null)
+            return Vector3.zero;
+
+        return qv.QVBody.Head.position;
+    }
+
+    public void SetPvParent(Transform target)
+    {
+        pv.SetPVParent(target);
+    }
+
+    public bool IsPVLoaded()
+    {
+        if (pv == null) return false;
+        return pv.IsLoaded();
+    }
+
+
+    #region Sound
+    // 나중에 캐릭터 테이블에서 사운드 프리팹 경로 가져오기로 바꾼다
+    public string GetSoundPrefabPath(int characterType)
+    {
+        switch (characterType)
+        {
+            case 1:
+                return "CFA/Prefabs/Sounds/AX_F_SUPPORT_OLGA_DEFAULT_DEFAULT_SOUND";
+            case 2:
+                return "CFA/Prefabs/Sounds/AX_M_ATTACKER_CHASE_DEFAULT_DEFAULT_SOUND";
+            case 3:
+                return "CFA/Prefabs/Sounds/AX_F_SUPPORT_OLGA_DEFAULT_DEFAULT_SOUND";
+        }
+
+        return "";
+    }
+
+    // 나중에 이모션 테이블에서 enum값 불러오기로 바꾼다
+    BRAudioEvent.EventType GetEnumEmoteSound(int emoteID)
+    {
+        switch (emoteID)
+        {
+            case 1:
+                return BRAudioEvent.EventType.Emote_Laugh_AX;
+
+            case 2:
+                return BRAudioEvent.EventType.Emote_Crying_AX;
+
+            case 3:
+                return BRAudioEvent.EventType.Emote_Clap_AX;
+
+            case 4:
+                return BRAudioEvent.EventType.Emote_Hi_AX;
+
+            case 5:
+                return BRAudioEvent.EventType.Emote_Thankyou_AX;
+
+            case 6:
+                return BRAudioEvent.EventType.Emote_IDontKnow_AX;
+
+            case 7:
+                return BRAudioEvent.EventType.Emote_Surprise_AX;
+
+            case 8:
+                return BRAudioEvent.EventType.Emote_Tantrum_AX;
+
+            case 9:
+                return BRAudioEvent.EventType.Emote_DontHitMe_AX;
+
+            case 1001:
+                return BRAudioEvent.EventType.Emote_OTL_AX;
+
+            case 1002:
+                return BRAudioEvent.EventType.Emote_Taunt_AX;
+
+            case 1003:
+                return BRAudioEvent.EventType.Emote_Restless_AX;
+
+            case 1004:
+                return BRAudioEvent.EventType.Emote_Stop_AX;
+
+            case 1005:
+                return BRAudioEvent.EventType.Emote_Surrender_AX;
+
+            case 1006:
+                return BRAudioEvent.EventType.Emote_Praise_AX;
+
+            case 2001:
+                return BRAudioEvent.EventType.Emote_TauntCoin_AX;
+
+            case 2002:
+                return BRAudioEvent.EventType.Emote_Surrender02_AX;
+
+            case 3001:
+                return BRAudioEvent.EventType.Emote_TauntGolf_AX;
+        }
+
+        return BRAudioEvent.EventType.Emote_Laugh_AX;
+    }
+
+    public void PlayEmoteSound(int emoteID)
+    {
+        PlayAudioEvent(GetEnumEmoteSound(emoteID));
+    }
+
+    public void StopEmoteSound(int emoteID)
+    {
+        StopAudioEvent(GetEnumEmoteSound(emoteID));
+    }
+
+    public void SetAnimationSoundFunc(Func<AxQVWeapon> getQvWeaponFunc)
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+
+        var reloadState = qv.GetStateBehavior<AnimatorState_QV_Reload>(AnimatorValues.state_QV_Upper_Reload);
+        if(reloadState != null)
+            reloadState.getCurrentQVWeapon = getQvWeaponFunc;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadState is NULL");
+
+        var reloadLoopState = qv.GetStateBehavior<AnimatorState_QV_Reload_Loop>(AnimatorValues.state_QV_Upper_Reload_Loop);
+        if(reloadLoopState != null)
+            reloadLoopState.getCurrentQVWeapon = getQvWeaponFunc;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadLoopState is NULL");
+
+        var reloadEndState = qv.GetStateBehavior<AnimatorState_QV_Reload_End>(AnimatorValues.state_QV_Upper_Reload_End);
+        if(reloadEndState != null)
+            reloadEndState.getCurrentQVWeapon = getQvWeaponFunc;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadEndState is NULL");
+
+        var reloadStartState = qv.GetStateBehavior<AnimatorState_QV_Reload_Start>(AnimatorValues.state_QV_Upper_Reload_Start);
+        if(reloadStartState != null)
+            reloadStartState.getCurrentQVWeapon = getQvWeaponFunc;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour reloadStartState is NULL");
+
+        var fireEndState = qv.GetStateBehavior<AnimatorState_QV_Fire_End>(AnimatorValues.state_QV_Upper_Fire_End);
+        if (fireEndState != null)
+            fireEndState.getCurrentQVWeapon = getQvWeaponFunc;
+        else
+            Debug.LogErrorFormat("GetStateBehaviour fireEndState is NULL");
+
+        var slidingState = qv.GetStateBehavior<AnimatorState_QV_Sliding>(AnimatorValues.state_QV_Base_Sliding);
+        if(slidingState != null)
+            slidingState.SetSlidingSound(_slidingLoopAudio, GetMaterialType);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour slidingState is NULL");
+    }
+
+    public void SetAnimationItemSoundFunc()
+    {
+        if (qv == null || qv.QVBody == null || !qv.QVBody.isActiveAndEnabled)
+            return;
+
+        var useitemStartState = qv.GetStateBehavior<AnimatorState_QV_UseItem_Start>(AnimatorValues.state_QV_Upper_UseItem_Start);
+        if(useitemStartState != null)
+            useitemStartState.SetUseItemSound(arrayConsumable[0].StartAudio);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemStartState is NULL");
+
+        var useitemEndState = qv.GetStateBehavior<AnimatorState_QV_UseItem_End>(AnimatorValues.state_QV_Upper_UseItem_End);
+        if(useitemEndState != null)
+            useitemEndState.SetUseItemSound(arrayConsumable[0].EndAudio);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour useitemEndState is NULL");
+
+        var usepdaStartState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_Start>(AnimatorValues.state_QV_Upper_UsePDA_Start);
+        if(usepdaStartState != null)
+            usepdaStartState.SetUseItemSound(arrayConsumable[1].StartAudio);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour usepdaStartState is NULL");
+
+        var usepdaLoopState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_Loop>(AnimatorValues.state_QV_Upper_UsePDA_Loop);
+        if(usepdaLoopState != null)
+            usepdaLoopState.SetUseItemSound(arrayConsumable[1].LoopAudio);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour usepdaLoopState is NULL");
+
+        var usepdaEndState = qv.GetStateBehavior<AnimatorState_QV_UsePDA_End>(AnimatorValues.state_QV_Upper_UsePDA_End);
+        if(usepdaEndState != null)
+            usepdaEndState.SetUseItemSound(arrayConsumable[1].EndAudio);
+        else
+            Debug.LogErrorFormat("GetStateBehaviour usepdaEndState is NULL");
+    }
+
+    public void PlayFootFX(FootSoundType type, bool bLeft)
+    {
+        if (axProperty.IsCameraTarget == false)
+        {
+            if (qv != null)
+                qv.AnimateFootEffect(bLeft, footSoundMaterial);
+        }
+    }
+
+    MaterialType footSoundMaterial;
+
+    public void PlayFootSound(FootSoundType type, bool bLeft)
+    {
+        RaycastHit hit;
+
+        Vector3 rayDir = Vector3.down;
+        if (type == FootSoundType.Climb)
+            rayDir = transform.forward;
+
+        if (Physics.Raycast(transform.position + Vector3.up, rayDir, out hit, 2f, MapCollision.HitMask))
+        {
+            BRMaterialSoundContainer.volumeMinMax vol;
+            footSoundMaterial = MapCollision.GetMaterialCollision(hit.collider, hit.point);
+
+            if (type == FootSoundType.Normal)
+            {
+                AudioClip clip = MapCollision.GetFootSoundByMaterial(footSoundMaterial, bLeft);
+                vol = BRMaterialSoundContainer.Singleton.FootSoundVol;
+                _PlayFootSound(clip, bLeft, vol);
+            }
+            else if(type == FootSoundType.Climb)
+            {
+                AudioClip clip = MapCollision.GetClimbSoundByMaterial(footSoundMaterial, bLeft);
+                vol = BRMaterialSoundContainer.Singleton.ClimbSoundVol;
+                _PlayFootSound(clip, bLeft, vol);
+            }
+            else
+            {
+                AudioClip clip = MapCollision.GetCrawlSoundByMaterial(footSoundMaterial, bLeft);
+                vol = BRMaterialSoundContainer.Singleton.CrawlSoundVol;
+                _PlayFootSound(clip, bLeft, vol);
+            }
+        }
+    }
+
+    private void _PlayFootSound(AudioClip clip, bool left, BRMaterialSoundContainer.volumeMinMax vol = null)
+    {
+        if (clip == null) return;
+
+        float pitch;
+        float volume;
+
+        if(vol == null)
+        {
+            pitch = UnityEngine.Random.Range(0.95f, 1.05f);
+            volume = UnityEngine.Random.Range(0.23f, 0.25f);
+        }
+        else
+        {
+            pitch = UnityEngine.Random.Range(vol.Pitch_Min, vol.Pitch_Max);
+            volume = UnityEngine.Random.Range(vol.Vol_Min, vol.Vol_Max);
+        }
+
+
+        if (left)
+        {
+            _footSoundLeft.enabled = true;
+            _footSoundLeft.volume = volume;
+            _footSoundLeft.pitch = pitch;
+            _footSoundLeft.PlayOneShot(clip);
+        }
+        else
+        {
+            _footSoundRight.enabled = true;
+            _footSoundRight.volume = volume;
+            _footSoundRight.pitch = pitch;
+            _footSoundRight.PlayOneShot(clip);
+        }
+
+        PlayGearSound();
+    }
+    public void PlayJumpSound(bool jump)
+    {
+        RaycastHit hit;
+
+        if (Physics.Raycast(transform.position + Vector3.up, Vector3.down, out hit, 2f, MapCollision.HitMask))
+        {
+            _PlayFootSound(MapCollision.GetJumpSoundByMaterial(hit.collider, hit.point, jump), true);
+        }
+
+        PlayGearSound();
+    }
+
+    public void PlaySlideStartSound()
+    {
+        AudioClip clip = null;
+
+        MaterialType matType = GetMaterialType();
+        if (matType == MaterialType.WATER)
+            clip = BRMaterialSoundContainer.Singleton.GetSlideStartSound(MaterialType.WATER);
+        else
+            clip = BRMaterialSoundContainer.Singleton.GetSlideStartSound(MaterialType.DEFAULT);
+
+        if(clip != null)
+            _slidingStartAudio.PlayOneShot(clip);
+    }
+
+    IEnumerator gustFadeIn = null;
+    IEnumerator gustFadeOut = null;
+    float windGustVolume = 1.0f;
+
+    public void PlayWindGustSound(float velocityY)
+    {
+        float windVelocity = GlobalAmbientAudio.singleton.windGust_VelocityY;
+        float fadeInTime = GlobalAmbientAudio.singleton.windGust_FadeInTime;
+        float fadeOutTime = GlobalAmbientAudio.singleton.windGust_FadeOutTime;
+
+        if (velocityY >= windVelocity && gustFadeIn == null)
+            return;
+
+        if (velocityY <= windVelocity && gustFadeIn == null)
+        {
+            if(gustFadeOut != null)
+            {
+                StopCoroutine(gustFadeOut);
+                gustFadeOut = null;
+            }
+
+            windGustVolume = _windGustAudio.volume;
+            gustFadeIn = PlaySoundFadeIn(_windGustAudio, fadeInTime);
+            StartCoroutine(gustFadeIn);
+        }
+        else if (velocityY >= windVelocity && gustFadeOut == null)
+        {
+            if(gustFadeIn != null)
+            {
+                StopCoroutine(gustFadeIn);
+                gustFadeIn = null;
+            }
+
+            _windGustAudio.volume = windGustVolume;
+            gustFadeOut = PlaySoundFadeOut(_windGustAudio, fadeOutTime, true);
+            StartCoroutine(gustFadeOut);
+        }
+    }
+
+    public IEnumerator PlaySoundFadeIn(AudioSource audioSource, float FadeTime)
+    {
+        float startVolume = audioSource.volume;
+        audioSource.volume = 0;
+        audioSource.enabled = true;
+        audioSource.Play();
+        
+        while (audioSource.volume < startVolume)
+        {
+            audioSource.volume += startVolume * Time.deltaTime / FadeTime;
+            yield return null;
+        }
+    }
+
+    public IEnumerator PlaySoundFadeOut(AudioSource audioSource, float FadeTime, bool isPause = false)
+    {
+        float startVolume = audioSource.volume;
+        while (audioSource.volume > 0)
+        {
+            audioSource.volume -= startVolume * Time.deltaTime / FadeTime;
+            yield return null;
+        }
+
+        if (isPause)
+            audioSource.Pause();
+        else
+            audioSource.Stop();
+
+        audioSource.enabled = false;
+        audioSource.volume = startVolume;
+    }
+
+    public void PlayLandingSound()
+    {
+        AudioClip clip = null;
+        MaterialType matType = GetMaterialType();
+        clip = BRMaterialSoundContainer.Singleton.GetLandingSound(matType);
+        _landingSound.PlayOneShot(clip);
+        PlayGearSound();
+    }
+
+    void PlayGearSound()
+    {
+        AudioClip clip = BRMaterialSoundContainer.Singleton.GetGearSound();
+        _gearSoundAudio.PlayOneShot(clip);
+    }
+
+    public void PlayAudioEvent(BRAudioEvent.EventType type)
+    {
+        if (_audioEvent == null)
+            return;
+
+        for (var i = 0; i < _audioEvent.Length; ++i)
+        {
+            if (_audioEvent[i] != null)
+                _audioEvent[i].Play(type);
+        }
+    }
+
+    public void StopAudioEvent(BRAudioEvent.EventType type)
+    {
+        if (_audioEvent == null)
+            return;
+
+        for (var i = 0; i < _audioEvent.Length; ++i)
+        {
+            if (_audioEvent[i] != null)
+                _audioEvent[i].Stop(type);
+        }
+    }
+
+    private MaterialType GetMaterialType()
+    {
+        RaycastHit hit;
+        Vector3 rayDir = Vector3.down;
+
+        if (Physics.Raycast(transform.position + Vector3.up, rayDir, out hit, 2f, MapCollision.HitMask))
+        {
+            return MapCollision.GetMaterialCollision(hit.collider, hit.point);
+        }
+
+        return MaterialType.DEFAULT;
+    }
+
+    #endregion
+
+    public void PvSkillEffectOn()
+    {
+        if (pv == null) return;
+        pv.PvSkillEffectOn();
+    }
+
+    public void PvSkillEffectOff()
+    {
+        if (pv == null) return;
+        pv.PvSkillEffectOff();
+    }
+
+    public void ModelOn( )
+    {
+        if (pv == null || qv == null || axProperty == null)
+            return;
+
+        //Debug.Log("ModelOn." + Name + " : " + axProperty.IsGroggyCare + " : " + axProperty.IsGroggyCareEnd);
+        pv.ModelOn();
+        qv.ModelOn();
+
+        if (axProperty.IsGroggyCareEnd)
+            axProperty.IsGroggyCare = false;
+
+        if (axProperty.IsSkyDive)
+        {
+            if (!axProperty.IsSkyDiveSlowDown)
+                AnimateSkyDiveMove(true);
+            else
+                AnimateSkyDiveSlowDown(true);
+        }
+        
+        else if (axProperty.IsGroggy)// 그로기
+        {
+            if (axProperty.IsGroggyCare & !axProperty.IsGroggyCareEnd)
+                AnimateGroggyCareTargetLoop();
+            else
+                AnimateDownMove();
+        }
+        else if (axProperty.IsGroggyCare & !axProperty.IsGroggyCareEnd)
+        {
+            AnimateGroggyCareActorLoop();
+        }
+        else if (axProperty.IsZipLine)// 집라인
+        {
+            AnimateZipLine();
+        }
+        else if (axProperty.IsUseItem)
+        {
+            if (axProperty.UseItemType == 0)
+            {
+                SetPVBool(AnimatorValues.hash_NextStep_UseItem, false);
+                SetQVBool(AnimatorValues.hash_NextStep_UseItem, false);
+                AnimateUseItemLoop();
+            }
+            else
+            {
+                SetPVBool(AnimatorValues.hash_NextStep_UsePDA, false);
+                SetQVBool(AnimatorValues.hash_NextStep_UsePDA, false);
+                AnimateUsePDALoop();
+            }
+        }
+        else if (axProperty.MoveDir != 0)
+        {
+            if (axProperty.IsSit)
+            {
+                if(axProperty.IsSliding)
+                {
+                    if (!IsPVStatePlaying(AnimatorValues.state_PV_Base_Sliding))
+                        AnimateSliding();
+                }
+                else
+                {
+                    AnimateSitMovePV();
+                    AnimateSitMoveQV();
+                }
+                
+            }
+            else if (axProperty.IsRush)
+            {
+                AnimateRushPV();
+                //AnimateRushQV();
+                CrossFadeQV_ms(AnimatorValues.state_QV_Base_Rush, 0.1f, AnimatorValues.BaseLayer, 0f, 0.1f, 0, 0);
+            }
+            else
+            {
+                AnimateStandMovePV();
+                //AnimateStandMoveQV()
+                CrossFadeQV_ms(AnimatorValues.state_QV_Base_StandMove, 0.1f, AnimatorValues.BaseLayer, 0.1f, 0f, 0, 0);
+            }
+        }
+       
+        //todo 파크루/클라이밍/제장전/총기교체 등등/..... 음 많이 이상하면 추가하자
+
+    }
+    public void ModelOff()
+    {
+        if (pv == null || qv == null)
+            return;
+        pv.ModelOff();
+        qv.ModelOff();
+        
+    }
+
+    public Transform GetDummySlide()
+    {
+        if (qv == null) return null;
+
+        return qv.GetDummySlide();
+    }
+
+    public void InitState()
+    {
+        if (pv == null )
+            return;
+        pv.InitState();
+    }
+
+    public void EventEffectPlay(CFW.Effect.EffectEvent _effectEvent, int id)
+    {
+        if (pv == null) return;
+        pv.EventEffectPlay(_effectEvent, id);
+    }
+
+    public void EventEffectStop(EffectEvent effecEvent, long worldKey, StopType stopType)
+    {
+        if (pv == null) return;
+        pv.EventEffectStop(effecEvent, worldKey, stopType);
+    }
+
+    public void SetQvArmsPostmotionEndAction(Action act)
+    {
+        if(qv == null) return;
+        qv.ArmsPostmotionFunc = act;
+    }
+}

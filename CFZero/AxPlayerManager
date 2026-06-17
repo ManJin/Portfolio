@@ -1,0 +1,557 @@
+﻿
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using CFA.Camera;
+using CFA.Util;
+using CFBR.Shared.Enum;
+using UnityEngine;
+
+namespace CFA.World
+{
+    public class AxPlayerManager : AxSingleton<AxPlayerManager>
+    {
+        public List<AxPlayer> _players = new List<AxPlayer>();
+        private readonly Dictionary<long, AxPlayer> _dicPlayers = new Dictionary<long, AxPlayer>();
+        Dictionary<Int64, List<AxPlayer>> dicTeamPlayer = new Dictionary<long, List<AxPlayer>>();
+        public List<long> RemovePlayers = new List<long>();
+        public List<AxPlayer> MyTeamPlayers;
+        public AxPlayer MyPlayer { get; private set; }
+        public AxPlayer JumpMaster { get; private set; }
+
+        public int TotalTeamCount { get; private set; }
+
+        public int StartUserCount { get; private set; }
+
+        public int CharacterModelOnCount
+	    {
+		    get
+		    {
+			    return _players.Count(player => player.IsCharacterModeOn);
+		    }
+	    }
+
+
+        bool bLoading = false;
+        CullingGroupCharacter playersCulling = new CullingGroupCharacter();
+
+        private void Awake()
+        {
+            float[] setdistance = new float[] { 20, 80, 500, 2000 };
+            playersCulling.SetCulling(CullingPlayer, setdistance);
+        }
+
+        public void Start()
+	    {
+			DontDestroyOnLoad(gameObject);
+	    }
+
+        public void Initialize()
+        {
+            
+        }
+
+        public void UpdateMyTeam( long myKey )
+        {
+            MyPlayer = GetPlayer( myKey );
+
+            MyTeamPlayers = GetTeam( MyPlayer.GroupKey );
+
+            TotalTeamCount = dicTeamPlayer.Count;
+
+            StartUserCount = _players.Count;
+        }
+
+        public AxPlayer AddPlayer( long worldKey , int charID , string name, long GroupKey , string countryCode, long exp )
+        {
+	        if (_dicPlayers.ContainsKey(worldKey))
+	        {
+		        Debug.LogErrorFormat("중복된 플레이어가 있습니다. : {0}:{1}", worldKey, name);
+		        return null;
+	        }
+
+            var go = new GameObject();
+            go.name = string.Format( "AxPlayer_{0}" , name );
+            go.transform.parent = transform;
+
+            var newPlayer = go.AddComponent<AxPlayer>();
+            
+            newPlayer.Initialize(worldKey, charID, name, GroupKey, countryCode, exp);
+
+            Debug.LogFormat("AxPlayer_{0}, worldKey_{1}", name, worldKey);
+            _players.Add( newPlayer );
+            _dicPlayers.Add( worldKey , newPlayer );
+
+            List<AxPlayer> playerList;
+            if( dicTeamPlayer.TryGetValue( GroupKey , out playerList ) )
+            {
+                playerList.Add( newPlayer );
+
+                playerList.Sort(delegate(AxPlayer a, AxPlayer b)
+                {
+                    if (a.WorldKey > b.WorldKey)
+                    {
+                        return 1;
+                    }
+                    else if (a.WorldKey < b.WorldKey)
+                    {
+                        return -1;
+                    }
+
+                    return 0;
+                });
+                
+	            for (int index = 0; index < playerList.Count; ++index)
+                    playerList[index].PartyIndex = index;
+            }
+            else
+            {
+                playerList = new List<AxPlayer>();
+                playerList.Add( newPlayer );
+                dicTeamPlayer.Add( GroupKey , playerList );
+            }
+
+            playersCulling.SetPlayerList(_dicPlayers.Values.ToArray());
+
+            return newPlayer;
+        }
+        
+        public void RemovePlayer( long worldKey )
+        {
+            var player = GetPlayer( worldKey );
+            if( player == null )
+            {
+                Debug.LogWarning( "Can't found player" );
+                return;
+            }
+
+            if (bLoading)
+            {
+                RemovePlayers.Add(worldKey);
+                return;
+            }
+
+            if ( JumpMaster && player.WorldKey == JumpMaster.WorldKey )
+                JumpMaster = null;
+
+            //if(player.IsGroggyCare() )
+            //{
+            //    List<AxPlayer> team = GetTeam( player.GroupKey );
+
+            //    for( int i=0 ; i < team.Count ; i++ )
+            //    {
+            //        if(team[i].IsGroggyCare() && team[i].WorldKey != player.WorldKey )
+            //        {
+            //            if( player.Property.IsGroggy)
+            //                AxInGame.Singleton.OnRecvPartySavingCancel( team[i].WorldKey , player.WorldKey );
+            //            else
+            //                AxInGame.Singleton.OnRecvPartySavingCancel( player.WorldKey ,team[ i ].WorldKey   );
+
+            //            break;
+            //        }
+            //    }
+
+            //}
+
+            List<AxPlayer> playerList;
+            if( dicTeamPlayer.TryGetValue( player.GroupKey , out playerList ) )
+            {
+                playerList.Remove( player );
+            }
+            
+            _players.Remove( player );
+            _dicPlayers.Remove( player.WorldKey );
+            playersCulling.SetPlayerList(_dicPlayers.Values.ToArray());
+
+
+            Debug.Log("OnRecvRemovePlayer : " + player.name + " Count :" + _players.Count );
+
+            DestoryPlayer(player);
+        }
+
+        public void Clear()
+        {
+            RemovePlayers.Clear();
+
+            for (int i = 0; i < _players.Count; ++i)
+            {
+                DestoryPlayer(_players[i]);
+            }
+
+            foreach (var val in dicTeamPlayer)
+            {
+                if (val.Value != null)
+                    val.Value.Clear();
+            }
+
+            dicTeamPlayer.Clear();
+            _players.Clear();
+            _dicPlayers.Clear();
+
+            MyTeamPlayers = null;
+            MyPlayer = null;
+            JumpMaster = null;
+
+
+
+        }
+
+        private void DestoryPlayer(AxPlayer player)
+        {
+            if (player == null)
+                return;
+
+            player.Clear();
+            Destroy(player.gameObject);
+        }
+
+        public AxPlayer GetPlayer( long worldKey )
+        {
+            if( _dicPlayers.ContainsKey( worldKey ) == false )
+                return null;
+
+            return _dicPlayers[ worldKey ];
+        }
+
+        public IEnumerable<AxPlayer> GetPlayers()
+        {
+            return _players;
+        }
+
+        public bool IsSameTeam( long UserKey1 , long UserKey2 )
+        {
+            AxPlayer player1 = GetPlayer( UserKey1 );
+
+            if( player1 == null )
+                return false;
+
+            AxPlayer player2 = GetPlayer( UserKey2 );
+
+            if( player2 == null )
+                return false;
+
+            if( player1.GroupKey == player2.GroupKey )
+                return true;
+
+            return false;
+        }
+
+        public bool IsMyTeam( long GroupKey )
+        {
+            return MyPlayer.GroupKey == GroupKey;
+        }
+        public List<AxPlayer> GetTeam( long GroupKey )
+        {
+            if( dicTeamPlayer.ContainsKey( GroupKey ) == false )
+                return null;
+
+            return dicTeamPlayer[ GroupKey ];
+        }
+        
+        public int GetLiveTeamCount()
+        {
+            if (dicTeamPlayer == null)
+                return 0;
+
+            int count = 0;
+
+            foreach (var val in dicTeamPlayer)
+            {
+                var team = val.Value;
+                if (team == null)
+                    continue;
+
+                for (int i = 0; i < team.Count; ++i)
+                {
+                    var player = team[i];
+                    if (player == null)
+                        continue;
+
+                    if (player.Property.state == eWORLD_USER_STATE.ALIVE_USER_STATE)
+                    {
+                        ++count;
+                        break;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        public IEnumerator LoadAllPlayer( Action<float> onProgress )
+        {
+            int loadingCount = 0;
+            Debug.LogError("loading Start");
+            bLoading = true;
+
+
+
+            while (loadingCount < _players.Count)
+            {
+                yield return _players[loadingCount].LoadCharacter();
+                ++loadingCount;
+
+                //Debug.LogError("Player loading Start :" + loadingCount.ToString());
+                if (onProgress != null)
+                    onProgress((float)loadingCount / (float)_players.Count);                
+            }
+            //foreach ( var player in _players )
+            //{
+            //    yield return player.LoadCharacter();
+            //    ++loadingCount;
+
+            //    Debug.LogError("Player loading Start :" + loadingCount.ToString());
+            //    if ( onProgress != null )
+            //        onProgress( (float)loadingCount / (float)_players.Count );
+            //}
+
+
+            bLoading = false;
+
+            for( int i=0; i < RemovePlayers.Count; i++)
+            {
+                RemovePlayer(RemovePlayers[i]);
+            }
+            yield return null;
+        }
+
+
+        public void OnAirPlane( AxAirPlane airPlane )
+        {
+            foreach( var v in _dicPlayers )
+            {
+                v.Value.OnAirPlane( airPlane.transform );
+            }
+        }
+
+        public int GetTeamArrayIndex( long GroupKey , Int64 playerID )
+        {
+            if( dicTeamPlayer.ContainsKey( GroupKey ) == false )
+                return 0;
+
+            List<AxPlayer> list = dicTeamPlayer[ GroupKey ];
+
+            for( int i = 0 ; i < list.Count ; i++ )
+            {
+                if( list[ i ].WorldKey == playerID )
+                    return i;
+            }
+
+            return 0;
+        }
+
+
+        public void SetJumpMaster( AxPlayer player )
+        {
+            JumpMaster = player;
+        }
+
+        public void ChangeLeader( long UserKey  , bool bIsJumpMaster , AxPlayer myPlayer )
+        {
+            AxPlayer player = GetPlayer( UserKey );
+
+            if( player == null )
+                return;
+
+            List<AxPlayer> playerList = GetTeam( player.GroupKey );
+
+            if( playerList == null )
+                return;
+
+            AxPlayer master = null;
+            for( int i = 0 ; i < playerList.Count ; i++ )
+            {
+                if( playerList[ i ].WorldKey == UserKey )
+                {
+                    playerList[ i ].SetJumpMaster( true );
+                    master = playerList[ i ];
+                    //playerList[ i ].transform.SetParent( this.transform );
+                    SetJumpMaster( playerList[ i ] );
+                }
+                else if( playerList[ i ].IsJumpMaster() )
+                {
+                    playerList[ i ].SetJumpMaster( false );
+                }
+            }
+
+            if (master)
+            {
+                for (int i = 0; i < playerList.Count; i++)
+                {
+                    playerList[i].SetJumpMasterName(master.Name);
+                }
+            }
+
+            for ( int i = 0 ; i < playerList.Count ; i++ )
+            {
+                //if( playerList[ i ].IsFollow() )
+                //    playerList[ i ].transform.SetParent( master.transform );
+            }
+
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.bIsMaster = bIsJumpMaster;
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.IsSolo = myPlayer.IsSoloJump();
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.PreMasterName = master != null ? master.PreJumpMasterName : string.Empty;
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.MasterName = master != null ? master.Name : string.Empty;
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.JumpMasterWorldKey = master != null ? master.WorldKey : 0;
+            AxInGameEvent.Singleton.EventParam_ChangeJumpMaster.IsCameraTargetPlayerInAirplane = myPlayer.Property.IsAirPlane;
+
+            AxInGameEvent.Singleton.SendEvent( AxInGameEventType.ChangeJumpMaster , AxInGameEvent.Singleton.EventParam_ChangeJumpMaster );
+            
+            if( myPlayer.IsFollow() )
+                AxInGameEvent.Singleton.SendEvent( AxInGameEventType.Follow , null );
+        }
+
+        public void SetSoloAll( long GroupKey )
+        {
+            List<AxPlayer> playerList = GetTeam( GroupKey );
+
+            for( int i = 0 ; i < playerList.Count ; i++ )
+            {
+                playerList[ i ].SetSolo();
+
+                if( playerList[ i ].WorldKey == MyPlayer.WorldKey )
+                {
+                    AxInGameEvent.Singleton.EventParam_SoloFall.IsInAirplane = playerList[ i ].Property.IsAirPlane;
+                    AxInGameEvent.Singleton.SendEvent( AxInGameEventType.SoloFall , AxInGameEvent.Singleton.EventParam_SoloFall );
+
+                    AxCameraController.Singleton.SetSolo();
+                }
+            }
+        }
+
+        public void SetSolo( long UserKey , long MyKey )
+        {
+            AxPlayer player = GetPlayer( UserKey );
+
+            player.SetSolo();            
+
+            List<AxPlayer> playerList = GetTeam( player.GroupKey );
+
+            if( playerList == null )
+                return;            
+         
+            //! 마스터가 혼자뛰게됬을경우 마스터도 솔로로변경..
+            for( int i = 0 ; i < playerList.Count ; i++ )
+            {
+                if( playerList[ i ].IsFollow() )
+                    return;
+            }
+
+            for( int i = 0 ; i < playerList.Count ; i++ )
+            {
+                if( playerList[ i ].IsJumpMaster() )
+                {
+                    playerList[ i ].SetSolo();
+                    if( playerList[ i ].WorldKey == MyKey )
+                    {
+                        AxInGameEvent.Singleton.EventParam_SoloFall.IsInAirplane = playerList[i].Property.IsAirPlane;
+                        AxInGameEvent.Singleton.SendEvent( AxInGameEventType.SoloFall , AxInGameEvent.Singleton.EventParam_SoloFall);
+                    }
+                }
+            }
+           
+        }
+
+        public void CalculateJumpMasterPosition( long WorldKey , Vector3 MasterPosition , Quaternion rot )
+        {
+            int number = 1;
+
+            for( int i = 0 ; i < AxPlayerManager.Singleton.MyTeamPlayers.Count ; i++ )
+            {
+                if( AxPlayerManager.Singleton.MyTeamPlayers[ i ].WorldKey == WorldKey )
+                    continue;
+
+                
+                if( AxPlayerManager.Singleton.MyTeamPlayers[ i ].IsFollow() )
+                {
+                    Vector3 position = MasterPosition;
+                    position.x = number % 2 == 0 ? position.x + 2 : position.x - 2;
+
+                    Collider[] col = Physics.OverlapSphere( position , 2 , AxPhysicsUtil.MapCheckLayer );
+
+                    if( col.Length > 0 )
+                    {
+                        if( WorldKey == MyPlayer.WorldKey )
+                        {
+                            AxInGame.Singleton.GetMyController().SoloFall();                            
+                        }
+                        return;
+                    }
+
+                    AxPlayerManager.Singleton.MyTeamPlayers[ i ].transform.position = position;
+                    AxPlayerManager.Singleton.MyTeamPlayers[ i ].SetPosition( position );
+                    AxPlayerManager.Singleton.MyTeamPlayers[ i ].transform.rotation = rot;
+
+                    number++;
+                }
+            }
+        }
+
+        public int GetLiveUserCount()
+        {
+            int count = 0;
+
+            if (_players != null)
+            {
+                for (int i = 0; i < _players.Count; ++i)
+                {
+                    if (_players[i] == null)
+                        continue;
+
+                    if (_players[i].Property.IsDead)
+                        continue;
+
+                    ++count;
+                }
+            }
+
+            return count;
+        }
+        
+        private void CullingPlayer(CullingGroupEvent ev)
+        {
+            if (ev.index < 0 || ev.index >= _dicPlayers.Count)
+                return;
+
+            AxPlayer[] playerList = _dicPlayers.Values.ToArray();
+
+            var player = playerList[ev.index];
+
+            if (player != null)
+            {
+                if (player.ContinueProcess() == false)
+                    return;
+
+                if (player.Property.IsCameraTarget || player.Property.IsDead || player.Property.IsAirPlane)
+                    return;
+                
+                if (ev.currentDistance <= 0 || (ev.isVisible && ev.currentDistance <= 2))
+                {
+                    player.CharacterModelOn();
+                    player.PlayFootSoundCulling(false);
+                }
+                else
+                {
+                    player.CharacterModelOff();
+
+                    if(ev.currentDistance == 1)
+                        player.PlayFootSoundCulling(true);
+                    else
+                        player.PlayFootSoundCulling(false);
+                }
+            }
+        }
+
+        private void Update()
+        {
+            playersCulling.Update();
+        }
+
+        public override void OnDestroy()
+        {
+            base.OnDestroy();
+            playersCulling.OnDestroy();
+        }
+    }
+}

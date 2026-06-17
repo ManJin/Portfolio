@@ -1,0 +1,190 @@
+﻿using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class AudioController : MonoBehaviour
+{
+    #region Variables
+    enum Fade
+    {
+        In,
+        Out
+    };
+    AudioSource myAudio = null;
+    GameContext gc = null;
+    bool isBGM = false;
+    bool isSE = false;
+
+    SortedDictionary<string, AudioClip> effectSoundList = new SortedDictionary<string, AudioClip>();
+
+    public bool BGM
+    {
+        set 
+        {
+            isBGM = value;
+            myAudio.mute = !isBGM;
+            if (value == true)
+                myAudio.Play();
+        }
+        get { return isBGM; }
+    }
+    public bool SE
+    {
+        set { isSE= value; }
+        
+        get { return isSE; }
+    }
+
+    #endregion
+    // Use this for initialization
+	void Start () {
+        DontDestroyOnLoad(gameObject);
+        gc = GameContext.GetInstance;
+        
+        
+        myAudio = gameObject.AddComponent<AudioSource>();
+        myAudio.volume = 0.6f;
+
+        Object[] clips = Resources.LoadAll("Sound/Effects");
+        for (int i = 0; i < clips.Length; i++)
+        {
+            AudioClip clip = clips[i] as AudioClip;
+            if(clip != null)
+                effectSoundList.Add(clip.name, clip);
+        }
+
+        
+        BGM = gc.UserData.Option.BGM;
+        SE = gc.UserData.Option.SE;
+        PlayBGM("BG");
+        Debug.Log(BGM + " : " + gc.UserData.Option.BGM);
+	}
+
+    public void SaveAudioState()
+    {
+        Debug.Log("SaveOption");
+        gc.UserData.Option.BGM = BGM;
+        gc.UserData.Option.SE = SE;
+        gc.UserData.Option.OnSaveOptionData();
+    }
+
+    //  effect sound
+    public void PlaySound(AudioClip clip)
+    {
+        if (isSE == false)
+            return;
+
+        AudioSource soundEffectSource = Camera.main.gameObject.AddComponent<AudioSource>();
+        soundEffectSource.dopplerLevel = 0.0f;
+        soundEffectSource.spatialBlend = 0.0f;
+        soundEffectSource.clip = clip;
+        soundEffectSource.PlayOneShot(clip); //Play the audio clip once
+
+        Component.Destroy(soundEffectSource, clip.length);
+    }
+
+    public void PlaySound(string effectSoundName)
+    {
+        if (isSE == false)
+            return;
+        AudioClip ac = effectSoundList[effectSoundName];
+        PlaySound(ac);
+    }
+
+    public void PlayBGM(string playBGM, bool loopPlay = true)
+    {
+        PlayBGM(Resources.Load("Sound/BGM/" + playBGM) as AudioClip, loopPlay);
+    }
+
+    public void PlayBGM(AudioClip clip, bool loopPlay = true)
+    {
+        if (isBGM == false)
+        {
+            myAudio.clip = clip;
+            myAudio.loop = loopPlay;
+        }
+        else
+        {
+            if (myAudio.clip != null)
+            {
+                if (myAudio.clip.name != clip.name)
+                {
+                    StartCoroutine(ChangeBGM(clip, loopPlay));
+                }
+            }
+            else
+            {
+                myAudio.clip = clip;
+                myAudio.volume = 1.0f;
+                myAudio.loop = loopPlay;
+                myAudio.Play();
+            }
+        }
+    }
+
+    public void OffBGM(float fadeTime = 0.0f)
+    {
+        myAudio.Stop();
+        myAudio.clip = null;
+    }
+
+    public void JumpBGMPlayTime(float setTime)
+    {
+        myAudio.time = setTime;
+    }
+
+    public void SetBGMVolume(float value)
+    {
+        if (value >= 0.0f || value <= 1.0f)
+            myAudio.volume = value;
+    }
+
+    IEnumerator ChangeBGM(AudioClip clip, bool playLoop)
+    {
+        float fadeVolume = 1.0f;
+        while (fadeVolume >= 0.0f)
+        {
+            fadeVolume -= 1.0f * Time.deltaTime;
+            myAudio.volume = fadeVolume;
+            yield return 0;
+        }
+
+        myAudio.clip = clip;
+        myAudio.loop = playLoop;
+        myAudio.Play();
+
+        while (fadeVolume <= 1.0f)
+        {
+            fadeVolume += 1.0f * Time.deltaTime;
+            myAudio.volume = fadeVolume;
+            yield return 0;
+        }
+
+        myAudio.volume = 1.0f;
+        yield return 0;
+    }
+
+    IEnumerator FadeAudio(AudioSource audioSource, float timer, Fade fadeType)
+    {
+        if (isSE)
+        {
+            float start = fadeType == Fade.In ? 0.0F : 1.0F;
+            float end = fadeType == Fade.In ? 1.0F : 0.0F;
+            float i = 0.0F;
+            float step = 1.0F / timer;
+
+            while (i <= 1.0F)
+            {
+                i += step * Time.deltaTime;
+                audioSource.volume = Mathf.Lerp(start, end, i);
+                yield return new WaitForSeconds(step * Time.deltaTime);
+            }
+
+            if (fadeType == Fade.Out)
+            {
+                Destroy(audioSource);
+                print("destroy music");
+            }
+        }
+    }
+}

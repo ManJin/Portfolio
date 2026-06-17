@@ -1,0 +1,72 @@
+﻿shader "Kuno/Masking/3HoleAlphaMask" {
+    Properties{
+        _x( "x", Range( -2, 2 ) ) = 0.5
+        _y( "y", Range( -2, 2 ) ) = 0.5
+        _x2( "x2", Range( -2, 2 ) ) = 0.5
+        _y2( "y2", Range( -2, 2 ) ) = 0.5
+        _x3( "x3", Range( -2, 2 ) ) = 0.5
+        _y3( "y3", Range( -2, 2 ) ) = 0.5
+        _clip( "clip", Range( 0, 1 ) ) = 0.1
+        _hardness( "hardness", Range( 0, 1 ) ) = 0.1
+        _multiply( "multiply", Range( 0, 10 ) ) = 1
+        _alpha( "alpha", Range( 0, 1 ) ) = 0.5
+    }
+
+    subShader{
+        tags{ "RenderType" = "Transparent" "Queue" = "Transparent" "IgnoreProjector" = "False" }
+
+        pass {
+            blend srcAlpha oneMinusSrcAlpha
+
+            CGPROGRAM
+
+            #pragma vertex vert
+            #pragma fragment frag
+
+            struct vertexInput {
+                float4 v : POSITION;
+                float4 t : TEXCOORD0;
+            };
+
+            struct vertexOutput {
+                float4 v : SV_POSITION;
+                float4 t : TEXCOORD0;
+            };
+
+            float _x;
+            float _y;
+            float _x2;
+            float _y2;
+            float _x3;
+            float _y3;
+            float _clip;
+            float _hardness;
+            float _multiply;
+            float _alpha;
+        
+            vertexOutput vert( vertexInput i ) {
+                vertexOutput o;
+
+                o.v = mul( UNITY_MATRIX_MVP, i.v );
+                o.t = i.t;
+
+                return o;
+            }
+
+            float4 frag( vertexOutput i ) : COLOR {
+                float2 uv = ( i.t.xy - 0.5 ) * 2;
+                float distance = length( float2( uv.x - _x, uv.y - _y ) );
+                float distance2 = length( float2( uv.x - _x2, uv.y - _y2 ) );
+                float distance3 = length( float2( uv.x - _x3, uv.y - _y3 ) );
+                float resultDistance = ( distance < distance2 ? ( distance < distance3 ? distance : distance3 ) : ( distance2 < distance3 ? distance2 : distance3 ) );
+                float alpha = ( resultDistance - _clip ) / _hardness / _multiply;
+
+                return float4( 0, 0, 0, clamp( 0, _alpha, alpha ) );
+            }
+
+            ENDCG
+        }
+    }
+
+    fallback "Diffuse"
+}

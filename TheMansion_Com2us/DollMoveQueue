@@ -1,0 +1,63 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class DollMoveQueue<T> : Queue {
+
+    Queue<T> queue = new Queue<T>();
+
+    T lastVal = default(T);
+
+    public Queue<T> moveQueue
+    {
+        get { return queue; }
+        set { queue = value; }
+    }
+
+    public override int Count
+    {
+        get { return queue.Count; }
+    }
+
+    public void Push(T item)
+    {
+        lastVal = item;
+        queue.Enqueue(item);
+    }
+
+    public T Pop()
+    {
+        if(queue.Count > 0)
+            return (T)queue.Dequeue();
+        return default(T);
+    }
+
+    new public T Peek()
+    {
+        if (queue.Count > 0)
+        {
+            return (T)queue.Peek();
+        }
+        else
+        {
+            return default(T);
+        }
+    }
+    public T LastValue()
+    {
+        return lastVal;
+    }
+
+    public bool IsEmpty()
+    {
+        if (queue.Count == 0)
+            return true;
+
+        return false;
+    }
+
+    public override void Clear()
+    {
+        queue.Clear();
+    }
+}

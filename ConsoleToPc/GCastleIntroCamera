@@ -1,0 +1,257 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class GCastleIntroCamera : MonoBehaviour {
+
+    public float moveSpd = 10.0f;
+    int moveDir = 1;
+    bool working = false;
+    bool start = false;
+    Transform targetTrans = null;
+    Transform myTrans = null;
+    public int frame = 0;
+    GameObject nameEffect = null;
+    Texture2D snapShot = null;
+    GCastleEnemy target = null;
+    public float lookheight = 3.0f;
+    static bool skipable = false;
+    GameOption GO = null;
+    void Awake()
+    {
+        thisCamera.enabled = false;
+        GO = GameOption.GetInstance;
+        
+    }
+	void Update () 
+    {
+        if (!start)
+            return;
+        if (GO.IsKeyUp(eKeyType.KeyType_RT) == true)
+        {
+            skipable = true;
+        }
+        if (skipable == true)
+        {
+            Debug.Log("Here");
+            UI_Scene_GCastleBattle uiBattle = GameObject.Find("G Battle UI").GetComponent<UI_Scene_GCastleBattle>();
+            uiBattle.Initialize();
+            uiBattle.CameraSetting(skipable);
+            //CommonObject.MainCamera.GetComponent<Camera>().enabled = true;
+            
+            CommonObject.GameInstance.GetCurrentState().IsEnterComplete = true;
+
+            GameObject go1 = GameObject.Find("Intro Camera01");
+            if(go1 != null)
+                GameObject.DestroyImmediate(go1);
+            GameObject go2 = GameObject.Find("Intro Camera02");
+            if (go2 != null)
+                GameObject.DestroyImmediate(go2);
+            GameObject go3 = GameObject.Find("Intro Camera03");
+            if (go3 != null)
+                GameObject.DestroyImmediate(go3);
+            GameObject go4 = GameObject.Find("Intro Camera04");
+            if (go4 != null)
+                GameObject.DestroyImmediate(go4);
+        }
+	}
+    Camera mainCamera
+    {
+        get
+        {
+            if (_main == null)
+                _main = CommonObject.MainCamera.GetComponent<Camera>();
+            return _main;
+        }
+    }
+    Camera _main = null;
+
+    Camera thisCamera
+    {
+        get
+        {
+            if (_this == null)
+                _this = this.GetComponent<Camera>();
+            return _this;
+        }
+    }
+    Camera _this = null;
+
+    public void Init()
+    {
+        thisCamera.enabled = true;
+        start = true;
+        myTrans = gameObject.transform;
+        myTrans.parent = null;
+        //Debug.LogError(myTrans.position);
+        targetTrans = GameObject.Find("Enemy").transform;
+        target = targetTrans.GetComponent<GCastleEnemy>();
+
+        mainCamera.enabled = false;
+        StartCoroutine(Move(frame));
+        if (this.gameObject.name.EndsWith("01"))
+        {
+            if (!AudioPlayer.GetInstance.IsPlaying("BGM_Battle_GCastle_Intro"))
+                AudioPlayer.GetInstance.OnPlayBGM("BGM_Battle_GCastle_Intro");
+        }
+        if (this.gameObject.name.EndsWith("04"))
+        {
+            StartCoroutine(FadeStart());
+        }
+
+    }
+    IEnumerator FadeStart()
+    {
+
+        //GameObject.Find("G Battle UI/pnTitle").GetComponent<UI_Effect>().FadeIn();
+        
+        int time = 50;
+        while (time > 0)
+        {
+            time -= 1;
+            yield return new WaitForFixedUpdate();
+        }
+        //GameObject.Find("G Battle UI/pnName").GetComponent<UI_Effect>().FadeIn();
+        
+        string source = "GCNameIntro/NameEffect_" + target.GetNameEffectID();
+        //Debug.Log(source);
+        nameEffect = GameObject.Instantiate(Resources.Load(source), GameObject.Find("G Battle UI/NameEffect").transform.position, Quaternion.Euler(new Vector3(-90, 0, 0))) as GameObject;
+        nameEffect.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+        nameEffect.transform.parent = GameObject.Find("G Battle UI/NameEffect").transform;
+        nameEffect.name = "NameEffect";
+    }
+    public void SetFadeTexture(Texture2D snapShot)
+    {
+        GameObject.Find("G Battle UI/pnIntro").GetComponent<dfTextureSprite>().Texture = snapShot;
+        GameObject.Find("G Battle UI/pnIntro").GetComponent<dfTweenFloat>().Play();
+    }
+    IEnumerator Move(int frame = 30)
+    {
+        if (!working)
+        {
+            working = true;
+            int time = frame;
+            while (time > 0)
+            {
+                time -= 1;
+                if(this.gameObject.name.EndsWith("01"))
+                    MoveRotate_LtoR();
+                else if (this.gameObject.name.EndsWith("02"))
+                    MoveRotate_RtoL();
+                else if (this.gameObject.name.EndsWith("03"))
+                    MoveRotate_DtoU();
+                else if (this.gameObject.name.EndsWith("04"))
+                    MoveRotate_UtoD();
+                yield return new WaitForFixedUpdate();
+            }
+            working = false;
+
+            
+            if (!this.gameObject.name.EndsWith("04"))
+            {
+                yield return new WaitForEndOfFrame();
+                snapShot = new Texture2D(Screen.width, Screen.height, TextureFormat.ARGB32, true);
+                snapShot.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+                yield return new WaitForEndOfFrame();
+                snapShot.Apply();
+            }
+            
+
+            GCastleIntroCamera nextCam = null;
+            if (this.gameObject.name.EndsWith("01"))
+                nextCam = GameObject.Find("Intro Camera02").GetComponent<GCastleIntroCamera>();
+            else if (this.gameObject.name.EndsWith("02"))
+                nextCam = GameObject.Find("Intro Camera03").GetComponent<GCastleIntroCamera>();
+            else if (this.gameObject.name.EndsWith("03"))
+                nextCam = GameObject.Find("Intro Camera04").GetComponent<GCastleIntroCamera>();
+            
+
+            if (nextCam != null)
+            {
+                nextCam.Init();
+                nextCam.SetFadeTexture(snapShot);
+            }
+            if (this.gameObject.name.EndsWith("04"))
+            {
+                //GameObject.Find("G Battle UI/pnTitle").GetComponent<UI_Effect>().FadeOut();
+                //GameObject.Find("G Battle UI/pnName").GetComponent<UI_Effect>().FadeOut();
+                time = 60;
+                while (time > 0)
+                {
+                    time -=1;
+                    yield return new WaitForFixedUpdate();
+                }
+                GameObject.DestroyImmediate(GameObject.Find("G Battle UI/NameEffect"));
+
+                yield return new WaitForFixedUpdate();
+
+                mainCamera.transform.position = gameObject.transform.position;
+                mainCamera.transform.rotation = gameObject.transform.rotation;
+                mainCamera.fieldOfView = thisCamera.fieldOfView;
+                CommonObject.GameInstance.GetCurrentState().IsEnterComplete = true;// 메인카메라 위치로
+                yield return new WaitForEndOfFrame();
+                snapShot = new Texture2D(Screen.width, Screen.height, TextureFormat.ARGB32, true);
+                snapShot.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+                yield return new WaitForEndOfFrame();
+                snapShot.Apply();
+
+                GameObject.Find("G Battle UI").GetComponent<UI_Scene_GCastleBattle>().Initialize();
+                GameObject.Find("G Battle UI/pnIntro").GetComponent<dfTextureSprite>().Texture = snapShot;
+            }
+
+
+            
+
+            yield return new WaitForFixedUpdate();
+            GameObject.DestroyImmediate(gameObject);
+        }
+
+    }
+
+    
+    void MoveRotate_LtoR()
+    {
+        float _angle = Time.deltaTime * moveSpd * -25f * Mathf.Deg2Rad;
+        myTrans.Rotate(Vector3.up, _angle, Space.World);
+    }
+    void MoveRotate_RtoL()//자신 기준으로 돌려야 함. 
+    {
+        float _angle = Time.deltaTime * moveSpd * 20f *Mathf.Deg2Rad;
+        myTrans.Rotate(Vector3.up, _angle, Space.World);
+    }
+    void MoveRotate_DtoU()
+    {
+        float _angle = Time.deltaTime * moveSpd * -0.4f *Mathf.Deg2Rad;
+
+        Vector3 nextPosition = new Vector3(
+                                    myTrans.position.x,
+                                    ((myTrans.position.y - targetTrans.position.y) * Mathf.Cos(_angle)
+                                    - (myTrans.position.z - targetTrans.position.z) * Mathf.Sin(_angle)),
+                                    ((myTrans.position.y - targetTrans.position.y) * Mathf.Sin(_angle)
+                                    + (myTrans.position.z - targetTrans.position.z) * Mathf.Cos(_angle)));
+        myTrans.position = nextPosition;
+    }
+    void MoveRotate_UtoD()
+    {
+        float _angle = Time.deltaTime * moveSpd * 1f *Mathf.Deg2Rad;
+
+        Vector3 nextPosition = new Vector3(
+                                    ((myTrans.position.x - targetTrans.position.x) * Mathf.Cos(_angle)
+                                    - (myTrans.position.z - targetTrans.position.z) * Mathf.Sin(_angle)),
+                                    myTrans.position.y,
+                                    ((myTrans.position.x - targetTrans.position.x) * Mathf.Sin(_angle)
+                                    + (myTrans.position.z - targetTrans.position.z) * Mathf.Cos(_angle)));
+
+        myTrans.position = nextPosition;
+        myTrans.LookAt(targetTrans.position + new Vector3(0, lookheight, 0));
+        nextPosition = new Vector3(
+                                    myTrans.position.x,
+                                    ((myTrans.position.y - targetTrans.position.y) * Mathf.Cos(_angle)
+                                    - (myTrans.position.z - targetTrans.position.z) * Mathf.Sin(_angle)),
+                                    ((myTrans.position.y - targetTrans.position.y) * Mathf.Sin(_angle)
+                                    + (myTrans.position.z - targetTrans.position.z) * Mathf.Cos(_angle)));
+        myTrans.position = nextPosition;
+        myTrans.LookAt(targetTrans.position + new Vector3(0, lookheight, 0));
+    }
+
+}
+

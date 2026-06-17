@@ -1,0 +1,331 @@
+using UnityEngine;
+using System.Collections;
+
+public class IAPManager  
+{
+    public static IAPManager GetInstance
+    {
+        get {
+            return Singleton<IAPManager>.GetInstance; 
+        }
+    }
+
+    public IAPItem GetCostumeFreeItem(HeroCostume costume)
+    {
+        return (costume - HeroCostume.DEFAULT) + IAPItem.NoItem;
+    }
+
+    public void AddMoney(int addMoney)
+    {
+        if (addMoney <= 0)
+            return;
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        sdm.AddCoindNumber(addMoney);
+    }
+
+    public void BuyCoin(int coinID)
+    {
+        int addCoin = coinData.GetCoinNumber(coinID);
+
+        GameContext gc = GameContext.GetInstance;
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+
+        sdm.AddCoindNumber(addCoin);
+        sdm.Save();
+    }
+
+    public bool UseExtraMove()
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int price = GetIAPGoodsPrice(IAPGoods.Extramove);
+        int coin = sdm.GetCoinNumber();
+        if (coin < price)
+            return false;
+
+        sdm.UseCoin(price);
+        sdm.Save();
+
+        return true;
+            
+    }
+
+    public void AddItem(IAPItem itemType, uint addNumber = 1)
+    {
+        if (itemType == IAPItem.NoItem)
+            return;
+
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        sdm.AddIAPitem(itemType, (int)addNumber);
+    }
+
+    public bool BuyItem(IAPItem itemType, uint buyNumber = 1)
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int money = sdm.GetCoinNumber();
+
+        if (money == 0 )
+            return false;
+
+        //int price = itemData.GetItemPrice(itemType);
+        int price = itemData.GetIAPGoodsPrice((IAPGoods)itemType);
+        int payment = price * (int)buyNumber;
+        if (money < payment)
+            return false;
+
+        GameContext gc = GameContext.GetInstance;
+
+        sdm.UseCoin(payment);
+        sdm.AddIAPitem(itemType, (int)buyNumber);
+
+        sdm.Save();
+        
+        return true;
+    }
+
+    public bool BuyItem(IAPGoods itemType, uint buyNumber = 1)
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int money = sdm.GetCoinNumber();
+
+        if (money == 0)
+            return false;
+
+        //int price = itemData.GetItemPrice(itemType);
+        int price = itemData.GetIAPGoodsPrice((IAPGoods)itemType);
+        int payment = price * (int)buyNumber;
+        if (money < payment)
+            return false;
+
+        GameContext gc = GameContext.GetInstance;
+        sdm.UseCoin(payment);
+        switch (itemType)
+        {
+            case IAPGoods.Package_IapItem1:
+                sdm.AddIAPitem(IAPItem.Masterkey, (int)buyNumber);
+                sdm.AddIAPitem(IAPItem.Phone, (int)buyNumber);
+                break;
+            case IAPGoods.Package_IapItem2:
+                sdm.AddIAPitem(IAPItem.RemoteGear, (int)buyNumber);
+                sdm.AddIAPitem(IAPItem.Bomb, (int)buyNumber);
+                break;
+            case IAPGoods.Package_IapItem3:
+                sdm.AddIAPitem(IAPItem.Bless, (int)buyNumber);
+                sdm.AddIAPitem(IAPItem.Magnetic, (int)buyNumber);
+                break;
+            case IAPGoods.Package_IapItem4:
+                sdm.AddIAPitem(IAPItem.Compass, (int)buyNumber);
+                sdm.AddIAPitem(IAPItem.Remover, (int)buyNumber);
+                break;
+            default:
+                sdm.AddIAPitem((IAPItem)itemType, (int)buyNumber);
+                break;
+        }
+
+        sdm.Save();
+        return true;
+    }
+
+    public void UseInappItem(IAPItem itemType)
+    {
+        if (UseIAPIngameItem(itemType))
+        {
+            SaveDataManager sdm = SaveDataManager.GetInstance;
+            int itemCount = sdm.GetIapItemCount(itemType);
+            sdm.SetIapItemCount(itemType, itemCount - 1);
+
+            if (itemType != IAPItem.RemoteGear && itemType != IAPItem.Magnetic && itemType != IAPItem.Phone)
+            {
+                GameContext gc = GameContext.GetInstance;
+                gc.iapEventStart = true;
+                gc.usedIapItem = itemType;
+            }
+        }
+    }
+
+    public void UseInappItemAtCostume(IAPItem itemType)
+    {
+        if (UseIAPIngameItem(itemType))
+            GameContext.GetInstance.FreeCostumeItem = false;
+    }
+
+    public bool BuyCostume(HeroCostume buyCostume)
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int money = sdm.GetCoinNumber();
+        if (money == 0)
+            return false;
+
+        //int price = itemData.GetCostumePrice(buyCostume);
+        int price = itemData.GetIAPGoodsPrice((IAPGoods)buyCostume);
+        if (money < price)
+            return false;
+
+        
+        sdm.BuyCostume(buyCostume);
+        sdm.UseCoin(price);
+        sdm.Save();
+        
+        return true;
+    }
+
+    public bool BuyCostume(IAPGoods buyCostume)
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int money = sdm.GetCoinNumber();
+        if (money == 0)
+            return false;
+
+        int price = itemData.GetIAPGoodsPrice(buyCostume);
+        if (money < price)
+            return false;
+
+        GameContext gc = GameContext.GetInstance;
+        sdm.UseCoin(price);
+
+        switch (buyCostume)
+        {
+            case IAPGoods.Package_Costume1:
+                sdm.BuyCostume(HeroCostume.THIEF);
+                sdm.BuyCostume(HeroCostume.HIGHSCHOOLGIRL);
+                break;
+            case IAPGoods.Package_Costume2:
+                sdm.BuyCostume(HeroCostume.ENGINEER);
+                sdm.BuyCostume(HeroCostume.MILITARYGIRL);
+                break;
+            case IAPGoods.Package_Costume3:
+                sdm.BuyCostume(HeroCostume.ANGEL);
+                sdm.BuyCostume(HeroCostume.SCIENTIST);
+                break;
+            case IAPGoods.Package_Costume4:
+                sdm.BuyCostume(HeroCostume.MARINE);
+                sdm.BuyCostume(HeroCostume.SPECIALAGENT);
+                break;
+            default:
+                sdm.BuyCostume((HeroCostume)buyCostume);
+                break;
+        }
+
+
+        sdm.Save();
+
+        return true;
+    }
+
+    public bool BuyMovefreeInStage()
+    {
+        SaveDataManager sdm = SaveDataManager.GetInstance;
+        int money = sdm.GetCoinNumber();
+        int price = itemData.GetIAPGoodsPrice(IAPGoods.InfiniteMove);
+        if (money < price)
+            return false;
+
+
+        sdm.SetBuyMoveFree();
+        sdm.UseCoin(price);
+
+        sdm.Save();
+        
+        return true;
+    }
+
+    //public bool ThemeOpen(int themeLevel)
+    //{
+    //    SaveDataManager sdm = SaveDataManager.GetInstance;
+    //    int money = sdm.GetCoinNumber();
+    //    int price = itemData.GetIAPGoodsPrice(IAPGoods.ThemeOpen);
+    //    if (money < price)
+    //        return false;
+
+    //    GMSItemID theme = GMSItemID.Theme2;
+        
+    //    if (themeLevel == 2)
+    //        theme = GMSItemID.Theme2;
+    //    else if (themeLevel == 3)
+    //        theme = GMSItemID.Theme3;
+    //    else if (themeLevel == 4)
+    //        theme = GMSItemID.Theme4;
+        
+    //    sdm.SetThemeOpen(themeLevel);
+    //    sdm.UseCoin(price);
+    //    GameContext gc = GameContext.GetInstance;
+    //    sdm.GMS_AddData(GMSMessage.Theme_Get, theme, money, price, money - price);
+        
+    //    if (gc.IsNetWorkReachable())
+    //        GameObject.Find("GMSManager").GetComponent<GMSManager>().TryUpdateItemBuy();
+        
+    //    return true;
+    //}
+    
+    public int GetItemPrice(IAPItem item)
+    {
+        return itemData.GetIAPGoodsPrice((IAPGoods)item);//
+    }
+    public int GetCostumePrice(HeroCostume costume)
+    {
+        return itemData.GetIAPGoodsPrice((IAPGoods)costume);
+    }
+    public int GetIAPGoodsPrice(IAPGoods goods)
+    {
+        return itemData.GetIAPGoodsPrice(goods);
+    }
+    public void GetCoinInfo(int id, out string coinNumber , out string coinPrice)
+    {
+        coinData.GetCoinInfo(id, out coinNumber, out coinPrice);
+    }
+
+    bool UseIAPIngameItem(IAPItem itemType)
+    {
+        GameContext gc = GameContext.GetInstance;
+        Character ann = gc.stage.mainCharacter;
+        bool useItem = false;
+
+        switch (itemType)
+        {
+            case IAPItem.Bless:
+                if (ann.UseInappItemBlessing())
+                    useItem = true;
+                break;
+            case IAPItem.Bomb:
+                if (ann.UseInappItemBomb())
+                    useItem = true;
+                break;
+            case IAPItem.Phone:
+                if (ann.UseInappItemCellPhone())
+                    useItem = true;
+                break;
+            case IAPItem.Magnetic:
+                if (ann.UseInappItemMagnetic())
+                    useItem = true;
+                break;
+            case IAPItem.Masterkey:
+                if (ann.UseInappItemMasterkey())
+                    useItem = true;
+                break;
+            case IAPItem.RemoteGear:
+                if (ann.UseInappItemRemoteGear())
+                    useItem = true;
+                break;
+            case IAPItem.Compass:
+                if (ann.UseInappItemCompass())
+                    useItem = true;
+                break;
+            case IAPItem.Remover:
+                if (ann.UseInappItemRemover())
+                    useItem = true;
+                break;
+            default:
+                break;
+        }
+
+        return useItem;
+    }
+
+    IAPManager()
+    {
+        itemData = new IAPSellGoodsData();
+        coinData = new CoinPriceData();
+    }
+    
+    IAPSellGoodsData itemData = null;
+    CoinPriceData coinData = null;
+}

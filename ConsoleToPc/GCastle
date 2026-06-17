@@ -1,0 +1,1329 @@
+﻿using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class GCastle : MonoBehaviour {
+    
+    public enum EnemyType
+    {
+        NULL = 0,
+        Type02 = 2,
+        Type03 = 3,
+        Type04 = 4,
+        Type05 = 5,
+        Type06 = 6,
+        Type07 = 7,
+        Type08 = 8,
+        Type09 = 9,
+        Type10 = 10,
+    }
+    public enum CalculateValue
+    {
+        GCASTLE_STATUS_MIN = 1,
+        ENHENCE_TURN_MAX = 3,
+        GCASTLE_HP_MAX = 999999999,
+        GCASTLE_HP_MIN = 1, 
+        GCASTLE_SP_MAX = 999999999,
+        GCASTLE_SP_MIN = 1,
+    }
+    public enum Status
+    {
+        ATK,
+        DEF,
+        INT,
+        MND,
+        AGI,
+        TEC,
+        HP,
+        SP,
+    }
+
+    Dictionary<GCastleEnhence.Type, GCastleEnhence> m_dicEnhence = new Dictionary<GCastleEnhence.Type, GCastleEnhence>();
+    
+
+    protected GameData gameData = null;
+
+    protected long ATK = 0;
+    protected long DEF = 0;
+    protected long INT = 0;
+    protected long MND = 0;
+    protected long AGI = 0;
+    protected long TEC = 0;
+    protected long currentSP = 0;
+    protected long maxSP = 0;
+    protected long currentHP = 0;
+    protected long maxHP = 0;
+    protected GCastleData enemyCastle = null;
+    protected GCastleData playerCastle = null;
+    protected GCastleEnhence.Type enhenceType = GCastleEnhence.Type.NONE;
+    protected int[] OpenSkillIDs = new int[15];
+    protected GCastleSkillData m_Skill = null;
+    public int BalanceRank = 0;
+    public eAttacker scriptOwner = eAttacker.Player;
+    protected int m_ID = 0;
+    public int ID
+    {
+        get { return m_ID; }
+    }
+    public GCastleSkillData Skill
+    {
+        get { return m_Skill; }
+    }
+
+    protected void Awake()
+    {
+        gameData = GameData.GetInstance;
+        enemyCastle = gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID);
+        playerCastle = gameData.GCastleData.GetGCastleData(1);
+        EnhenceDicInitialize();
+    }
+    protected void InitializeGCastleStatus()
+    {
+        if (scriptOwner == eAttacker.Player)
+        {
+            ATK = CalculatePlayerGCastleBaseStatus(Status.ATK);
+            DEF = CalculatePlayerGCastleBaseStatus(Status.DEF);
+            INT = CalculatePlayerGCastleBaseStatus(Status.INT);
+            MND = CalculatePlayerGCastleBaseStatus(Status.MND);
+            AGI = CalculatePlayerGCastleBaseStatus(Status.AGI);
+            TEC = CalculatePlayerGCastleBaseStatus(Status.TEC);
+
+            maxHP = currentHP = CalculatePlayerGCastleHP();
+            maxSP = currentSP = CalculatePlayerGCastleSP();
+        }
+        else
+        {
+            ATK = CalculateEnemyGCastleBaseStatus(Status.ATK);
+            DEF = CalculateEnemyGCastleBaseStatus(Status.DEF);
+            INT = CalculateEnemyGCastleBaseStatus(Status.INT);
+            MND = CalculateEnemyGCastleBaseStatus(Status.MND);
+            AGI = CalculateEnemyGCastleBaseStatus(Status.AGI);
+            TEC = CalculateEnemyGCastleBaseStatus(Status.TEC);
+
+            maxHP = currentHP = CalculateEnemyGCastleHP();
+            maxSP = currentSP = CalculateEnemyGCastleSP();
+        }
+
+        //TODO : 추가로, 사용가능한 스킬리스트의 셋업을 해야 함. 
+        // gcDataListUpPlayerSkillData( GC_PLAYER * pPlay )
+    }
+
+    public void SetEnhenceStatus(int skillID)
+    {
+        switch (skillID)
+        {
+            case 31:
+                CalculateEnhenceStatus(GCastleEnhence.Type.ATK);
+                CalculateEnhenceStatus(GCastleEnhence.Type.DEF);
+                break;
+            case 32:
+                CalculateEnhenceStatus(GCastleEnhence.Type.INT);
+                CalculateEnhenceStatus(GCastleEnhence.Type.MND);
+                break;
+            case 33:
+                CalculateEnhenceStatus(GCastleEnhence.Type.AGI);
+                CalculateEnhenceStatus(GCastleEnhence.Type.TEC);
+                break;
+            case 34:
+                CalculateEnhenceStatus(GCastleEnhence.Type.ATK);
+                CalculateEnhenceStatus(GCastleEnhence.Type.DEF);
+                CalculateEnhenceStatus(GCastleEnhence.Type.INT);
+                CalculateEnhenceStatus(GCastleEnhence.Type.MND);
+                CalculateEnhenceStatus(GCastleEnhence.Type.AGI);
+                CalculateEnhenceStatus(GCastleEnhence.Type.TEC);
+                break;
+            case 35:
+                for (int i = 0; i < 2; i++)
+                {
+                    CalculateEnhenceStatus(GCastleEnhence.Type.ATK);
+                    CalculateEnhenceStatus(GCastleEnhence.Type.DEF);
+                    CalculateEnhenceStatus(GCastleEnhence.Type.INT);
+                    CalculateEnhenceStatus(GCastleEnhence.Type.MND);
+                    CalculateEnhenceStatus(GCastleEnhence.Type.AGI);
+                    CalculateEnhenceStatus(GCastleEnhence.Type.TEC);
+                }
+                break;
+        }
+    }
+
+    public long GetEnhenceValue(GCastleEnhence.Type type)
+    {
+        long retVal = 0;
+        GCastleEnhence retCalss = null;
+        if (m_dicEnhence.TryGetValue(type, out retCalss))
+        {
+            retVal = retCalss.Value;
+        }
+        return retVal;
+    }
+    void EnhenceDicInitialize()
+    {
+        m_dicEnhence.Add(GCastleEnhence.Type.ATK, new GCastleEnhence());
+        m_dicEnhence.Add(GCastleEnhence.Type.DEF, new GCastleEnhence());
+        m_dicEnhence.Add(GCastleEnhence.Type.INT, new GCastleEnhence());
+        m_dicEnhence.Add(GCastleEnhence.Type.MND, new GCastleEnhence());
+        m_dicEnhence.Add(GCastleEnhence.Type.AGI, new GCastleEnhence());
+        m_dicEnhence.Add(GCastleEnhence.Type.TEC, new GCastleEnhence());
+    }
+
+    /// <summary>
+    /// CalculateEnhenceStatus(GCastleEnhence.Type type) 강화 타입별 호출되면 강화된 값(기본값 제외한) 을 밷음.
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    protected int CalculateEnhenceStatus(GCastleEnhence.Type type)
+    {
+        GCastleEnhence retVal = null;
+
+        int power = 0;
+        int id = 0;
+        switch (type)
+        {
+            case GCastleEnhence.Type.ATK:
+            case GCastleEnhence.Type.DEF:
+                id = 31;
+                break;
+            case GCastleEnhence.Type.INT:
+            case GCastleEnhence.Type.MND:
+                id = 32;
+                break;
+            case GCastleEnhence.Type.AGI:
+            case GCastleEnhence.Type.TEC:
+                id = 33;
+                break;
+            case GCastleEnhence.Type.ALL:
+                id = 34;
+                break;
+            case GCastleEnhence.Type.ALLPLUS:
+                id = 35;
+                break;
+        }
+        power = gameData.GCastleData.SkillData.GetGCastleSkillData(id).EffectParam;
+
+        if (m_dicEnhence.TryGetValue(type, out retVal))
+        {
+            if (retVal.Flag == false)
+                retVal.Flag = true;
+
+            retVal.Turn = (int)CalculateValue.ENHENCE_TURN_MAX;
+            retVal.Value += power;
+
+            return retVal.Value;
+        }
+        return 0;
+    }
+    /// <summary>
+    /// CheckEnhenceTrun() 매 턴 체크하여 현재 강화상태가 어떠한지에 대한 체크를 함. 
+    /// </summary>
+    protected void CheckEnhenceTrun()
+    {
+        for (GCastleEnhence.Type type = GCastleEnhence.Type.ATK; type < GCastleEnhence.Type.ALLPLUS; type++)
+        {
+            EnhenceTurnStatus(type);
+        }
+    }
+    void EnhenceTurnStatus(GCastleEnhence.Type type)
+    {
+        GCastleEnhence retVal = null;
+        if (m_dicEnhence.TryGetValue(type, out retVal))
+        {
+            if (retVal.Flag == true)
+            {
+                retVal.Turn--;
+
+                if (retVal.Turn <= 0)
+                {
+                    retVal.Turn = 0;
+                    retVal.Value = 0;
+                    retVal.Flag = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// CheckEnhenceMax() True 일 경우 최대 강화가 되어 강화 루틴을 타지 않음
+    /// </summary>
+    /// <returns></returns>
+    protected bool CheckEnhenceMax()
+    {
+        bool retVal = false;
+        GCastleEnhence outVal = null;
+        if(m_dicEnhence.TryGetValue(GCastleEnhence.Type.ALL, out outVal))
+        {
+            if(outVal.Flag == true)
+                retVal = true;
+        }
+        if (m_dicEnhence.TryGetValue(GCastleEnhence.Type.ALLPLUS, out outVal))
+        {
+            if (outVal.Flag == true)
+                retVal = true;
+        }
+        return retVal;
+    }
+
+
+    /// <summary>
+    /// CalculatePlayerGCastleHP() 플레이어 함선 HP 반환
+    /// </summary>
+    /// <returns></returns>
+    protected long CalculatePlayerGCastleHP()
+    {
+        long retVal = 0;
+        long baseVal = GetGCastleBaseStatus(1, Status.HP);
+        long totalATK = CalculatePlayerGCastleBaseStatus(Status.ATK);
+        long totalDEF = CalculatePlayerGCastleBaseStatus(Status.DEF);
+        long totalAGI = CalculatePlayerGCastleBaseStatus(Status.AGI);
+
+        retVal = baseVal + ((totalATK + totalDEF + totalAGI ) / 3 * 10);
+
+        if (retVal > (int)CalculateValue.GCASTLE_HP_MAX)
+            retVal = (int)CalculateValue.GCASTLE_HP_MAX;
+        if(retVal < (int)CalculateValue.GCASTLE_HP_MIN)
+            retVal = (int)CalculateValue.GCASTLE_HP_MIN;
+
+        return retVal;
+    }
+    /// <summary>
+    /// CalculateEnemyGCastleHP() 적 함선 HP 반환
+    /// </summary>
+    /// <returns></returns>
+    protected long CalculateEnemyGCastleHP()
+    {
+        long retVal = 0;
+        long baseVal = GetGCastleBaseStatus(gameData.EnemyGCastleID, Status.HP);
+        long revisionVal = GetGCastleRevisionStatus(gameData.EnemyGCastleID, Status.HP);
+        float adjust = 1.0f;
+        int level = gameData.SaveDataManager.SaveData.PlayerInfo.GetPlayer(1).CurrLevel;
+        while (level > 1)
+        {
+            adjust += (revisionVal / 100.0f * Random.Range(90.0f, 110.0f) / 100.0f);
+            level--;
+            if (level <= 1)
+                break;
+        }
+        retVal = (long)(baseVal * adjust);
+
+        
+        if (retVal < (int)CalculateValue.GCASTLE_HP_MIN)
+            retVal = (int)CalculateValue.GCASTLE_HP_MIN;
+
+        return retVal;
+    }
+
+    /// <summary>
+    /// HP 회복 계산식 
+    /// HP 회복? 포인트 = 최대 HP * 보정 값 / 100 + {(INT + MND) / 2 / 10} + 공격력 
+    /// HP 회복? 포인트 = 최대 HP * 보정 값 / 100 + {(INT + MND) / 2} + 공격력 11/11 수정 
+    /// </summary>
+    /// <param name="castleID"></param>
+    /// <param name="skill"></param>
+    /// <returns></returns>
+    protected long CalculateGCastleRecoverHP(int castleID , GCastleSkillData skill)
+    {
+        long retVal = 0;
+        if (skill.SubType != eGCastleSkillSubType.HealHP)
+            return 0;
+
+        
+        long maxHP = GetStatus(Status.HP);
+
+        long revisionVal = skill.EffectParam;
+
+        retVal = maxHP * revisionVal / 100;
+
+        long battleINT = 0;
+        long battleMND = 0;
+
+        if (castleID == 1)
+        {
+            battleINT = CalculatePlayerGCastleBattleStatus(Status.INT, skill.ID);
+            battleMND = CalculatePlayerGCastleBattleStatus(Status.INT, skill.ID);
+        }
+        else
+        {
+            battleINT = CalculateEnemyGCastleBattleStatus(Status.INT, skill.ID);
+            battleMND = CalculateEnemyGCastleBattleStatus(Status.INT, skill.ID);
+        }
+
+        retVal += (battleINT + battleMND) / 2;
+
+        long atkPower = skill.AttackPower;
+        
+        retVal += atkPower;
+
+        return retVal;
+    }
+    public long GetAmountRecoverHP()
+    {
+        if (scriptOwner == eAttacker.Player)
+        {
+            return CalculateGCastleRecoverHP(1, m_Skill);
+        }
+        else
+        {
+            return CalculateGCastleRecoverHP(gameData.EnemyGCastleID, m_Skill);
+        }
+    }
+    /// <summary>
+    /// 소비 HP 
+    ///G 캐슬 기술 [순위 1] 소비 HP [0]에서 사용할 수 있도록 설정합니다. 
+    ///HP를 소비하는 것은 [SP 회복 카테고리 기술] 한정됩니다. 
+    ///
+    ///소비 HP 계산식 
+    ///소비 HP = 베? 스 소비 HP + {최대 HP * 소비? 포인트 보정 값 / 100} 
+    ///?? ※ 순위 1에서의 보정 값은 "0"순위 2 이상으로 보정 값이 들어가도록 설정 
+    /// </summary>
+    /// <param name="skill"></param>
+    /// <returns></returns>
+    protected long CalculateGCastleCostHP(GCastleSkillData skill)
+    {
+        long retVal = 0;
+        if (skill.SubType != eGCastleSkillSubType.HealSP)
+            return 0;
+
+        int rank = skill.Rank;
+        if (rank == 1)
+            return 0;
+
+        long baseVal = skill.CostHP;
+        long maxVal = GetStatus(Status.HP);
+        long revisionVal = skill.CostSubValue;
+        retVal = baseVal + (maxVal * revisionVal / 100);
+
+        return retVal;
+    }
+      /* 
+G 캐슬 SP 
+
+SP = 기본값 + INT 합계 + MND 합계 + TEC 합계 
+SP = 기본 값 + (INT 합계 + MND 합계 + TEC 합계) / 3 * 10 11/11 수정 
+
+※ 상기 계산식은 플레이어 G 캐슬에만 적요하십시오. 
+※ 스킬의 보정 값은 가미하지 않습니다. 
+※ 적 G 캐슬은 [기본값 * 보정 값]로 계산합니다. 
+※ 최종 값이 "0"이하가 될 경우 "1"로합니다 (0 이하로한다) 
+※ 조 이상의 값을 계산하도록하십시오 (최소 조 수십조 또는 백조 정도까지는 계산 선호) 
+*/
+    public long GetAmountRecoverSP()
+    {
+        if (scriptOwner == eAttacker.Player)
+        {
+            return CalculateGCastleRecoverSP(1, m_Skill);
+        }
+        else
+        {
+            return CalculateGCastleRecoverSP(gameData.EnemyGCastleID, m_Skill);
+        }
+    }
+    protected long CalculatePlayerGCastleSP()
+    {
+        long retVal;
+        long baseVal = GetGCastleRevisionStatus(playerCastle.ID, Status.SP);
+        long totalINT = CalculatePlayerGCastleBaseStatus(Status.INT);
+        long totalMND = CalculatePlayerGCastleBaseStatus(Status.MND);
+        long totalTEC = CalculatePlayerGCastleBaseStatus(Status.TEC);
+
+        retVal = baseVal + (totalINT + totalMND + totalTEC) / 3 * 10;
+
+        if (retVal > (long)CalculateValue.GCASTLE_SP_MAX)
+            retVal = (long)CalculateValue.GCASTLE_SP_MAX;
+        if (retVal < (long)CalculateValue.GCASTLE_SP_MIN)
+            retVal = (long)CalculateValue.GCASTLE_SP_MIN;
+
+        return retVal;
+    }
+    protected long CalculateEnemyGCastleSP()
+    {
+        long retVal = 0;
+        long baseVal = GetGCastleBaseStatus(enemyCastle.ID, Status.SP);
+        retVal = baseVal;
+        long revisionVal = GetGCastleRevisionStatus(enemyCastle.ID, Status.SP);
+
+        float adjust = 1.0f;
+        int level = gameData.SaveDataManager.SaveData.PlayerInfo.GetPlayer(1).CurrLevel;
+        
+        if (level <= 1)
+            return retVal;
+        float rand = 0;//Random.Range(90, 110);
+        while (level > 1)
+        {
+            rand = Random.Range(90.0f, 110.0f);
+
+            adjust += (revisionVal / 100.0f * rand / 100.0f);
+            level--;
+
+            if (level <= 1)
+                break;
+        }
+        retVal = (long)(baseVal * adjust);
+
+        if (retVal < (long)CalculateValue.GCASTLE_SP_MIN)
+            retVal = (long)CalculateValue.GCASTLE_SP_MIN;
+        return retVal;
+    }
+    /// <summary>
+    /// SP 회복 계산식 
+    /// SP 회복 포인트 = 최대 SP * 보정 값 / 100 + {(TEC + AGI) / 2 / 5} + 공격력 
+    /// SP 회복 포인트 = 최대 SP * 보정 값 / 100 + {(TEC + AGI) / 2} + 공격력 11/11 수정 
+    /// </summary>
+    /// <param name="shipID"></param>
+    /// <param name="skill"></param>
+    /// <returns></returns>
+    protected long CalculateGCastleRecoverSP(int castleID, GCastleSkillData skill)
+    {
+        long retVal = 0;
+        if (skill.SubType != eGCastleSkillSubType.HealSP)
+        {
+            return 0;
+        }
+        long maxSP = GetStatus(Status.SP);
+        long revisionVal = skill.EffectParam;
+
+        retVal = maxSP * revisionVal / 100;
+
+        long battleTEC = 0;
+        long battleAGI = 0;
+
+        if (castleID == 1)
+        {
+            battleTEC = CalculatePlayerGCastleBattleStatus(Status.TEC, skill.ID);
+            battleAGI = CalculatePlayerGCastleBattleStatus(Status.AGI, skill.ID);
+        }
+        else
+        {
+            battleTEC = CalculateEnemyGCastleBattleStatus(Status.TEC, skill.ID);
+            battleAGI = CalculateEnemyGCastleBattleStatus(Status.AGI, skill.ID);
+        }
+
+        retVal += (battleTEC + battleAGI) / 2;
+
+        long atkPower = skill.AttackPower;
+
+        retVal += atkPower;
+
+        return retVal;
+    }
+    /// <summary>
+    /// 소비 SP 
+    ///G 캐슬 기술 [순위 1] 소비 SP [0]에서 사용할 수 있도록 설정합니다. 
+    ///이것은 모든 SP를 필요로하는 공격 수단이 제한되어 있기 때문입니다. 
+    ///
+    ///소비 SP 계산식 
+    ///소비 SP = 기반 소모 SP + {최대 SP * 소비 포인트 보정 값 / 100} 
+    ///※ 순위 1에서의 보정 값은 "0"순위 2 이상으로 보정 값이 들어가도록 설정 
+    /// </summary>
+    /// <param name="castleID"></param>
+    /// <param name="skill"></param>
+    /// <returns></returns>
+    protected long CalculateGCastleCostSP(int castleID, GCastleSkillData skill)
+    {
+        long retVal = 0;
+        if(skill.SubType == eGCastleSkillSubType.HealSP)
+            return 0;
+
+        if (skill.Rank == 1) return 0;
+
+        long baseVal = GetGCastleBaseStatus(castleID, Status.SP);
+        long maxSP = GetStatus(Status.SP);
+
+        long revisionVal = GetGCastleRevisionStatus(castleID, Status.SP);
+
+        retVal = baseVal + (maxSP * revisionVal / 100);
+
+        return retVal;
+    }
+    /* 
+배틀 ATK = 기본 ATK * 외관 Lv 보정 값 * 스킬 보정치 (100 + 효과 값) / 100 
+※ 기본 ATK는 [기본값 + 샨뿌루 수 (환원 값)]입니다. 
+※ 적의 경우에는 [기본 값 + 보정 값]입니다. 
+※ DEF ~ TEC 같은 계산식을 사용합니다. 
+※ 스킬 보정 값의 최대 값은 [200]합니다 (200 이상이되었을 경우 【200】으로한다). 
+※ G 캐슬 스킬의 강화 효과의 회전 수는 [3]으로 고정합니다. 
+※ 효과가 발생하고있는 상태에서 강화 효과를 사용하면 회전 수는 덮어 효과는 최대치까지 가산하도록하십시오 
+
+G 캐슬 적 전투 상태 계산식 
+배틀 ATK = 기본 ATK * 외관 Lv 보정 값 * 스킬 보정치 (100 + 효과 값) / 100 
+※ 무겐 필드에만 【출현 Lv 보정 값]을 참조 상태를 계산합니다. 
+※ 이벤트에서 출현하는 G 캐슬은 기본 값 (데이터에 설정되어있는 값)에서 출현합니다. 
+※ DEF ~ TEC 같은 계산식을 사용합니다. 
+※ 스킬 보정 값의 최대 값은 [200]합니다 (200 이상이되었을 경우 【200】으로한다). 
+※ G 캐슬 스킬의 강화 효과의 회전 수는 [3]으로 고정합니다. 
+※ 효과가 발생하고있는 상태에서 강화 효과를 사용하면 회전 수는 덮어 효과는 최대치까지 가산하도록하십시오 
+
+
+※ 2012.1.20 두 계산식에서 출현 Lv 보정 값을 제거 
+*/
+
+    /// <summary>
+    /// CalculatePlayerGCastleBattleStatus() 플레이어 스킬에 적용되는 앖. 
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="skillID"></param>
+    /// <returns></returns>
+    public long CalculatePlayerGCastleBattleStatus(GCastle.Status type, int skillID)
+    {
+        long retVal = 0;
+        //step4
+        long baseVal = GetStatus(type);// +gameData.ShampuruData.GetShampuruRevisionValue(type);
+        //if(type == Status.ATK)
+            
+        long revisionVal = gameData.GCastleData.SkillData.GetGCastleSkillData(skillID).EffectParam;
+        if (revisionVal > 100)
+            revisionVal = 100;
+
+        retVal = baseVal * (100 + revisionVal) / 100;
+
+        return retVal;
+    }
+    /// <summary>
+    /// CalculateEnemyGCastleBattleStatus() 사용할 스킬에 적용되는 데미지 값 등인듯. 
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    public long CalculateEnemyGCastleBattleStatus(GCastle.Status type, int skillID)
+    {
+        long retVal = 0;
+        long baseVal = GetStatus(type);
+        long revisionVal = gameData.GCastleData.SkillData.GetGCastleSkillData(skillID).EffectParam;//스킬 이펙트 파라메터 
+
+        if (revisionVal > 100)
+            revisionVal = 100;
+        retVal = baseVal * (100 + revisionVal) / 100;
+
+        return retVal;
+    }
+
+    /// <summary>
+    /// 스킬에 의한 상승 보정치를 더해서 반환해준다. 
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    public long GetStatus(GCastle.Status type)
+    {
+        long retVal = -1;
+        double temp = 0.0f;
+
+        switch (type)
+        {
+            case Status.ATK:
+                temp = ATK * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.ATK));
+                break;
+            case Status.DEF:
+                temp = DEF * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.DEF));
+                break;
+            case Status.INT:
+                temp = INT * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.INT));
+                break;
+            case Status.MND:
+                temp = MND * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.MND));
+                break;
+            case Status.AGI:
+                temp = AGI * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.AGI));
+                break;
+            case Status.TEC:
+                temp = TEC * 0.01f * (100 * GetEnhenceValue(GCastleEnhence.Type.TEC));
+                break;
+            case Status.HP:
+                return maxHP;
+            case Status.SP:
+                return maxSP;
+        }
+        if (temp < 1.0f)
+            temp = 1.0f;
+        retVal = (long)temp;
+        return retVal;
+    }
+    /// <summary>
+    /// GetGCastleBaseStatus() id의 type 값의 Status 수치 리턴
+    /// </summary>
+    /// <param name="battleShipID"></param>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    long GetGCastleBaseStatus(int battleShipID, GCastle.Status type)
+    {
+        long retVal = 0;
+        switch(type)
+        {
+            case Status.ATK:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.ATK;
+                break;
+            case Status.DEF:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.DEF;
+                break;
+            case Status.INT:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.INT;
+                break;
+            case Status.MND:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.MND;
+                break;
+            case Status.AGI:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.AGI;
+                break;
+            case Status.TEC:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.TEC;
+                break;
+            case Status.HP:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.HP;
+                break;
+            case Status.SP:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).Status.SP;
+                break;
+        }
+        return retVal;
+    }
+    /// <summary>
+    /// GetGCastleRevisionStatus() id의 type 값의 UpStatus 값 리턴
+    /// </summary>
+    /// <param name="battleShipID"></param>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    long GetGCastleRevisionStatus(int battleShipID, GCastle.Status type)
+    {
+        long retVal = 0;
+        switch (type)
+        {
+            case Status.ATK:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.ATK;
+                break;
+            case Status.DEF:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.DEF;
+                break;
+            case Status.INT:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.INT;
+                break;
+            case Status.MND:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.MND;
+                break;
+            case Status.AGI:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.AGI;
+                break;
+            case Status.TEC:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.TEC;
+                break;
+            case Status.HP:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.HP;
+                break;
+            case Status.SP:
+                retVal = gameData.GCastleData.GetGCastleData(battleShipID).UpStatus.SP;
+                break;
+        }
+        return retVal;
+    }
+
+    /// <summary>
+    /// CalculatePlayerGCastleBaseStatus() 기본 스텟 계산
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    protected long CalculatePlayerGCastleBaseStatus(GCastle.Status type)
+    {
+        long retVal = 0;
+        //끝
+        long baseVal = GetGCastleBaseStatus(1,type);
+        //끝
+        long shampuruVal = gameData.ShampuruData.GetShampuruRevisionValue(type);
+
+        retVal = baseVal + shampuruVal;
+        if (retVal < (int)CalculateValue.GCASTLE_STATUS_MIN)
+            retVal = (int)CalculateValue.GCASTLE_STATUS_MIN;
+        return retVal;
+    }
+    /// <summary>
+    /// CalculateEnemyGCastleBaseStatus() 기본 스텟 계산
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    protected long CalculateEnemyGCastleBaseStatus(GCastle.Status type)
+    {
+        long retVal = 0;
+        //적함선 레벨 가져올수있도록.
+        int playerLevel = gameData.SaveDataManager.SaveData.PlayerInfo.GetPlayer(1).CurrLevel;
+        int rand = 0;
+        long base_param = GetGCastleBaseStatus(gameData.EnemyGCastleID, type);
+        
+        long revision_param = GetGCastleRevisionStatus(gameData.EnemyGCastleID, type);
+
+        double adjust = 0;
+
+        while (playerLevel > 1)
+        {
+            rand = Random.Range(90, 100);
+            adjust += ((revision_param / 100.0f) * (rand / 100.0f));
+            playerLevel--;
+            if (playerLevel <= 1)
+                break;
+        }
+
+        retVal = (long)(base_param * adjust);
+
+        if (retVal < (int)CalculateValue.GCASTLE_STATUS_MIN)
+            retVal = (int)CalculateValue.GCASTLE_STATUS_MIN;
+
+        return retVal;
+    }
+
+    protected long CalculateRevisionRankRecover(int rank)
+    {
+        long retVal = 0;
+        if (rank <= 0 || rank > 5)
+            return 0;
+
+        retVal = GetRevisionRankHeal(rank);
+
+        return retVal;
+    }
+    /// <summary>
+    /// Heal Rank 값은 stGameParam_Gキャッスル計算式 에서 받아옴.
+    /// RankRevision = { 10, 20, 30, 40, 50};
+    /// </summary>
+    /// <param name="rank"></param>
+    /// <returns></returns>
+    protected long GetRevisionRankHeal(int rank)
+    {
+        long retVal = 0;
+        if (rank <= 0)
+        {
+            //Debug.Log("GetRevisionRankHeal(int rank) : Rank is Invalid");
+            retVal = 0;
+        }
+        else if (rank >= 5)
+            retVal = 50;
+        else
+            retVal = rank * 10;
+
+        return retVal;
+
+    }
+
+    public long GetPlayerSpeed()
+    {
+        long agi = GetStatus(Status.AGI);
+        long tec = GetStatus(Status.TEC);
+        int rand = Random.Range(90, 100);
+
+        long retVal = (agi + tec) / 2 * rand;
+
+        return retVal;
+    }
+   
+    public long GetMaxHP()
+    {
+        return maxHP;
+    }
+    public long GetMaxSP()
+    {
+        return maxSP;
+    }
+    public string GetFaceCG()
+    {
+        if (scriptOwner == eAttacker.Player)
+        {
+            return gameData.GCastleData.GetGCastleData(1).BattleCGID.ToString();
+        }
+        else
+        {
+            return gameData.GCastleData.GetGCastleData(gameData.EnemyGCastleID).BattleCGID.ToString();
+        }
+    }
+
+    public string GetTalkBodyCG(GCastleVoiceData data)
+    {
+        int rand = Random.Range(1, 3);
+        int retVal = 0;
+
+        if (rand == 1)
+            retVal = data.CG1;
+        else if (rand == 2)
+            retVal = data.CG2;
+        else if (rand == 3)
+            retVal = data.CG1;
+
+        if (retVal == 0)
+            retVal = 4201;
+
+        return retVal.ToString();
+
+        //if (scriptOwner == eAttacker.Player)
+        //    return "4015";
+        //else
+        //    return "4031";
+    }
+    /// <summary>
+    /// amount 는 양수, 음수 가능. 
+    /// </summary>
+    /// <param name="amount"></param>
+    public void ChangeSkillRank(int amount)
+    {
+        int reviseRank = 0;
+        if (m_Skill.Rank + amount > 5)
+            reviseRank = 5;
+        else if (m_Skill.Rank + amount < 1)
+            reviseRank = 1;
+        else
+        {
+            reviseRank = m_Skill.Rank + amount;
+        }
+        int newID = gameData.GCastleData.SkillData.GetGCastleSkillID(m_Skill.ID, reviseRank);
+        m_Skill = gameData.GCastleData.SkillData.GetGCastleSkillData(newID);
+    }
+
+    public GCastleVoiceData GetHintData(int characterID)
+    {
+        //Debug.Log("GetHintData : "+characterID);
+        int id = GetTalkHintIndex(characterID);
+        //Debug.Log("GetHintData : " + id);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        //Debug.Log("GetHintData : " + voiceData);
+        return voiceData;
+    }
+    /// <summary>
+    /// 일반 공격에 대한 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Attack(int characterID)
+    {
+        int id = GetTalkAttackIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+    /// <summary>
+    /// 반사성공대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Hit_Reflect(int characterID)
+    {
+        int id = GetTalkHitReflectIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+    /// <summary>
+    /// 데미지 입은경우 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Damage(int characterID)
+    {
+        int id = GetTalkDamageIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+    /// <summary>
+    /// 흡수 성공대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Hit_Absorb(int characterID)
+    {
+        int id = 0;
+        if (m_Skill.SubType == eGCastleSkillSubType.AbsorbHP)
+            id = GetTalkHitHPAbsorbIndex(characterID);
+        else if (m_Skill.SubType == eGCastleSkillSubType.AbsorbSP)
+            id = GetTalkHitSPAbsorbIndex(characterID);
+
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+    /// <summary>
+    /// 난타전 대사 데이터
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Offset(int characterID)
+    {
+        int id = GetTalkOffsetIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+
+    /// <summary>
+    /// 봉쇄 시
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Blockade(int characterID)
+    {
+        int id = GetTalkBlockadeIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+
+
+    /// <summary>
+    /// 승리시 대사 적 아이디를 받아와서 설정된 승리대사 출력, 2번 없을수도 있음.
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public VictoryVoice GetTalkData_Win(int enemyID, int num)
+    {
+        GCastleData data = gameData.GCastleData.GetGCastleData(enemyID);
+
+        VictoryVoice retVal = new VictoryVoice();
+
+        if (num == 1)
+        {
+            retVal.SetData(data.VictoryData11.Text, data.VictoryData11.CGID, data.VictoryData11.VoiceID);
+        }
+        else
+        {
+            retVal.SetData(data.VictoryData12.Text, data.VictoryData12.CGID, data.VictoryData12.VoiceID);
+        }
+
+        return retVal;
+    }
+    /// <summary>
+    /// 패배시 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    public GCastleVoiceData GetTalkData_Lose(int characterID)
+    {
+        int id = GetTalkLoseIndex(characterID);
+        GCastleVoiceData voiceData = gameData.GCastleData.VoiceData.GetData(id);
+        return voiceData;
+    }
+
+    /// <summary>
+    /// 상대방 공격 예측 (예보) 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkHintIndex(int characterID)
+    {
+        GCastleTalk.TalkSubType type = GCastleTalk.TalkSubType.Sub_Hint_Attack;
+
+        if(m_Skill.Type == eGCastleSkillType.Buff)
+            type = GCastleTalk.TalkSubType.Sub_Hint_Buff;
+        if(m_Skill.Type == eGCastleSkillType.Heal)
+            type = GCastleTalk.TalkSubType.Sub_Hint_Heal;
+
+        return GetTalkSearchIndex(type, characterID);             
+    }
+    /// <summary>
+    /// 반사 성공시 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkHitReflectIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Hit_Reflect, characterID);
+    }
+    /// <summary>
+    /// 관통 성공시 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkHitPierceIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Hit_Pierce, characterID);
+    }
+    /// <summary>
+    /// HP흡수 성공시 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkHitHPAbsorbIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Hit_HP_Absorb, characterID);
+    }
+    /// <summary>
+    ///  SP 흡수 성공시 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkHitSPAbsorbIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Hit_SP_Absorb, characterID);
+    }
+    /// <summary>
+    /// 봉쇄 성공
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkBlockadeIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Hit_Blockade, characterID);
+    }
+    /// <summary>
+    /// 총격전시 대사. 
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkOffsetIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Offsetting, characterID);
+    }
+    /// <summary>
+    /// 데미지 대사 인덱스
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkDamageIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Damage, characterID);
+    }
+    /// <summary>
+    /// 승리시 대사 인덱스
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkWinIndex(int characterID, int num)
+    {
+        GCastleTalk.TalkSubType type = GCastleTalk.TalkSubType.Sub_System_Win;
+        if(num == 1)
+            type = GCastleTalk.TalkSubType.Sub_System_Win;
+        else
+            type = GCastleTalk.TalkSubType.Sub_System_Win2;
+
+        int retVal = GetTalkSearchIndex(type , characterID);
+        Debug.Log(retVal);
+        if(retVal <= 0)
+            type = GCastleTalk.TalkSubType.Sub_System_Win;
+
+        retVal = GetTalkSearchIndex(type , characterID);
+
+        Debug.Log(retVal);
+        return retVal;
+    }
+
+    /// <summary>
+    /// 패배 대사 인덱스
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkLoseIndex(int characterID)
+    {
+        return GetTalkSearchIndex(GCastleTalk.TalkSubType.Sub_Lose, characterID);
+    }
+
+    /// <summary>
+    /// 일반적인 상황에서의 공격에 대한 대사
+    /// </summary>
+    /// <param name="characterID"></param>
+    /// <returns></returns>
+    int GetTalkAttackIndex(int characterID)
+    {
+        GCastleTalk.TalkSubType type = GCastleTalk.TalkSubType.Sub_Hint_Attack;
+
+        if (m_Skill.SubType == eGCastleSkillSubType.Attack)
+            type = GCastleTalk.TalkSubType.Sub_Attack;
+        else if (m_Skill.SubType == eGCastleSkillSubType.Reflect)
+            type = GCastleTalk.TalkSubType.Sub_Reflect;
+        else if (m_Skill.SubType == eGCastleSkillSubType.Pierce)
+            type = GCastleTalk.TalkSubType.Sub_Pierce;
+        else if (m_Skill.SubType == eGCastleSkillSubType.Buff)
+            type = GCastleTalk.TalkSubType.Sub_Buff;
+        else if (m_Skill.SubType == eGCastleSkillSubType.AbsorbSP)
+            type = GCastleTalk.TalkSubType.Sub_SP_Absorb;
+        else if (m_Skill.SubType == eGCastleSkillSubType.FastAttack)
+            type = GCastleTalk.TalkSubType.Sub_FastAttack;
+        else if (m_Skill.SubType == eGCastleSkillSubType.HealHP)
+            type = GCastleTalk.TalkSubType.Sub_HP_Heal;
+        else if (m_Skill.SubType == eGCastleSkillSubType.AbsorbHP)
+            type = GCastleTalk.TalkSubType.Sub_HP_Absorb;
+        else if (m_Skill.SubType == eGCastleSkillSubType.HealSP)
+            type = GCastleTalk.TalkSubType.Sub_SP_Heal;
+
+        return GetTalkSearchIndex(type, characterID);
+    }
+    /// <summary>
+    /// 타입에 따른 대사 찾아서 인덱스 반환
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="id"></param>
+    /// <param name="spec"></param>
+    /// <returns></returns>
+    int GetTalkSearchIndex(GCastleTalk.TalkSubType type, int id, int spec = 999)
+    {
+        int[] index_can = new int[8];
+        int index_max = 0;
+        int index_ran = 0;// 번호 후보 랜덤값
+
+        int voice_max = gameData.GCastleData.VoiceData.GetMaximumDataCount();
+        IEnumerable<GCastleVoiceData> voiceData = gameData.GCastleData.VoiceData.GetIEnumerableData(type, id);
+
+        foreach(GCastleVoiceData data in voiceData)
+        {
+            index_can[index_max] = data.ID;
+            index_max++;
+            if (index_max >= 8)
+                break;
+        }
+        if (index_max <= 0)
+            return -1;
+        if (index_max == 1)
+            return index_can[0];
+        if (spec < index_max)
+            return index_can[spec];
+
+        index_ran = Random.Range(0, index_max - 1);
+
+        return index_can[index_ran];
+    }
+    public int GetDefaultVoiceID()
+    {
+        return gameData.GCastleData.GetGCastleData(m_ID).DefaultVoiceID;
+    }
+
+    /// <summary>
+    /// 해당 카테고리에 있는 개방된 스킬의 총 갯수 
+    /// 0~15 사이 리턴. 
+    /// </summary>
+    /// <param name="type"></param>
+    /// <returns></returns>
+    public int GetCategoryCount(eGCastleSkillType type)
+    {
+        int retVal = 0;
+        IEnumerable<GCastleSkillData> list = gameData.GCastleData.SkillData.GetSkillsListInCategory(type);
+        bool[] flags = { false, false, false, false, false, false, false };
+        int tempVal = 0;
+        int trueVal = 0;
+        foreach (GCastleSkillData data in list)
+        {
+            if (data.GetLearnShampuru(eShampuruType.Normal) != 0) flags[0] = true;
+            if (data.GetLearnShampuru(eShampuruType.Attack) != 0) flags[1] = true;
+            if (data.GetLearnShampuru(eShampuruType.Guard) != 0) flags[2] = true;
+            if (data.GetLearnShampuru(eShampuruType.Magic) != 0) flags[3] = true;
+            if (data.GetLearnShampuru(eShampuruType.Support) != 0) flags[4] = true;
+            if (data.GetLearnShampuru(eShampuruType.Far) != 0) flags[5] = true;
+            if (data.GetLearnShampuru(eShampuruType.Special) != 0) flags[6] = true;
+
+            foreach (bool flag in flags)
+                if (flag)
+                    trueVal++;
+
+            if (flags[0] == true)
+            {
+                //Debug.Log("Normal " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Normal) + " : " + data.GetLearnShampuru(eShampuruType.Normal));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Normal) >= data.GetLearnShampuru(eShampuruType.Normal))
+                    tempVal++;
+            }
+            if (flags[1] == true)
+            {
+                //Debug.Log("Attack " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Attack) + " : " + data.GetLearnShampuru(eShampuruType.Attack));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Attack) >= data.GetLearnShampuru(eShampuruType.Attack))
+                    tempVal++;
+            }
+            if (flags[2] == true)
+            {
+                //Debug.Log("Guard " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Guard) + " : " + data.GetLearnShampuru(eShampuruType.Guard));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Guard) >= data.GetLearnShampuru(eShampuruType.Guard))
+                    tempVal++;
+            }
+            if (flags[3] == true)
+            {
+                //Debug.Log("Magic " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Magic) + " : " + data.GetLearnShampuru(eShampuruType.Magic));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Magic) >= data.GetLearnShampuru(eShampuruType.Magic))
+                    tempVal++;
+            }
+            if (flags[4] == true)
+            {
+                //Debug.Log("Support " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Support) + " : " + data.GetLearnShampuru(eShampuruType.Support));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Support) >= data.GetLearnShampuru(eShampuruType.Support))
+                    tempVal++;
+            }
+            if (flags[5] == true)
+            {
+                //Debug.Log("Far " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Far) + " : " + data.GetLearnShampuru(eShampuruType.Far));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Far) >= data.GetLearnShampuru(eShampuruType.Far))
+                    retVal++;
+            }
+            if (flags[6] == true)
+            {
+                //Debug.Log("Special " + gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Special) + " : " + data.GetLearnShampuru(eShampuruType.Special));
+                if (gameData.ShampuruData.GetShampuruCountByCategory(eShampuruType.Special) >= data.GetLearnShampuru(eShampuruType.Special))
+                    tempVal++;
+            }
+
+            if (tempVal >= trueVal)
+            {
+                OpenSkillIDs[retVal] = data.ID;
+                retVal++;
+            }
+            tempVal = 0;
+            trueVal = 0;
+            for (int i = 0; i < 7; i++)
+                flags[i] = false;
+        }
+        return retVal;
+    }
+    public int[] GetOpenedSkillIDs()
+    {
+        return OpenSkillIDs;
+    }
+
+}
+
+public class GCastleEnhence
+{
+    public enum Type
+    {
+        NONE = 0,
+        ATK = 1,
+        DEF = 2,
+        INT = 3,
+        MND = 4,
+        AGI = 5,
+        TEC = 6,
+        ALL = 7,
+        ALLPLUS = 8,
+    }
+
+    //Type m_Enhence = Type.NONE;
+
+    int m_Value = 0;
+    int m_Turn = 0;
+    bool m_Flag = false;
+    
+    public bool Flag
+    {
+        set { m_Flag = value; }
+        get { return m_Flag; }
+    }
+
+    public int Value
+    {
+        set { m_Value = value; }
+        get { return m_Value; }
+    }
+    public int Turn
+    {
+        set { m_Turn = value; }
+        get { return m_Turn; }
+    }
+    //public Type EnhenceType
+    //{
+    //    set { m_Enhence = value; }
+    //    get { return m_Enhence; }
+    //}
+}
+
+public class VictoryVoice
+{
+    string m_text = "";
+    int m_cgid = 0;
+    int m_voiceid = 0;
+    public int CGID
+    {
+        get { return m_cgid; }
+    }
+
+    public int VOICEID
+    {
+        get { return m_voiceid; }
+    }
+
+    public string TEXT
+    {
+        get { return m_text; }
+    }
+
+    public void SetData(string text, int cg, int voice)
+    {
+        m_text = text;
+        m_cgid = cg;
+        m_voiceid = voice;
+    }
+}

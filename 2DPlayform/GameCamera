@@ -1,0 +1,211 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class GameCamera : MonoBehaviour {
+
+    Transform target;
+    float trackSpeed = 100;
+    Collider2D myColl = null;
+    GameContext.eDirection m_eBeforeDir = GameContext.eDirection.NoDirection;
+    GameContext gc;
+    float cameraMoveMinHeight = 2.0f;
+    float cameraMoveMinPos = 0.0f;
+    bool m_bCameraStopByWall = false;
+    float m_fCameraLastPosY = 0.0f;
+    GameContext.eDirection m_eNextDir = GameContext.eDirection.NoDirection;
+
+    /// <summary>
+    /// 오버헤드 감소용
+    /// </summary>
+    MainController mainController = null;
+    Transform myTransform = null;
+    Vector3 nextPos = Vector3.zero;
+    GameObject otherCollObj = null;
+    void Start()
+    {
+        gc = GameContext.GetInstance;
+        mainController = gc.Controller_Main;
+        myTransform = this.transform;
+        gc.SetInGameCamera("GameCamera");
+        myColl = this.GetComponent<BoxCollider2D>();
+
+    }
+    public void  SetTarget(Transform t)
+    {
+        target = t;
+    }
+
+    public void removeTarget()
+    {
+        target = null;
+
+    }
+    
+
+    public void ResetTarget()
+    {
+        //Debug.Log("Here : " + m_bCameraStopByWall + " : "  + m_eBeforeDir + " : " + gc.GetDirection());
+        //if (m_bCameraStopByWall == true && m_eBeforeDir != gc.GetDirection())
+        if (m_bCameraStopByWall == true)
+        {
+            //Debug.Log("Here : " + m_eBeforeDir + " : " + gc.GetDirection());
+            if ((target.localPosition.x <= myTransform.localPosition.x && m_eNextDir == GameContext.eDirection.Left)
+                || (target.localPosition.x >= myTransform.localPosition.x && m_eNextDir == GameContext.eDirection.Right))
+            {
+                //Debug.Log("TTTTT");
+                m_bCameraStopByWall = false;
+                StartCoroutine(LateEnableCollider());
+            }
+
+            //Debug.Log("Here");
+        }
+    }
+    IEnumerator LateEnableCollider()
+    {
+        yield return new WaitForSeconds(1.0f);
+        myColl.enabled = true;
+    }
+    public float GetIncrementY()
+    {
+        return IncrementTowards(myTransform.position.y, target.position.y, trackSpeed);
+    }
+    void LateUpdate()
+    {
+        if (mainController.gameState == GameContext.eGameState.END)
+            return;
+
+        if (m_bCameraStopByWall == true)
+            ResetTarget();
+
+        //Debug.Log("target : " + target + " : " + m_bCameraStopByWall);
+        if (target != null)
+        {
+
+            float x = IncrementTowards(myTransform.position.x, target.position.x, trackSpeed);
+            float y = IncrementTowards(myTransform.position.y, target.position.y, trackSpeed);
+            //Debug.Log(x + " ; " + y);
+            if(y > m_fCameraLastPosY)
+                m_fCameraLastPosY = y;
+
+            nextPos = myTransform.position;
+
+            if (m_bCameraStopByWall == false)
+            {
+                if (y < cameraMoveMinPos)
+                {
+                    nextPos.x = x;
+                    nextPos.y = cameraMoveMinPos;
+                    myTransform.position = nextPos;
+                }
+                else
+                {
+                    if (m_fCameraLastPosY < y)
+                    {
+                        nextPos.x = x;
+                        nextPos.y = y;
+                        myTransform.position = nextPos;
+                    }
+                    else
+                    {
+                        nextPos.x = x;
+                        nextPos.y = m_fCameraLastPosY;
+                        myTransform.position = nextPos;
+                    }
+                }
+            }
+            else
+            {
+                if (y < cameraMoveMinPos)
+                {
+                    nextPos.y = cameraMoveMinPos;
+                    myTransform.position = nextPos;
+                }
+                else
+                {
+                    if (m_fCameraLastPosY < y)
+                    {
+                        nextPos.y = y;
+                        myTransform.position = nextPos;
+                    }
+                    else
+                    {
+                        nextPos.y = m_fCameraLastPosY;
+                        myTransform.position = nextPos;
+                    }
+                }
+            }
+        }
+    }
+    void CameraMoves()
+    {
+        if (m_bCameraStopByWall == true)
+            ResetTarget();
+
+    }
+    void OnTriggerEnter2D(Collider2D coll)
+    {
+        otherCollObj = coll.gameObject;
+        //Debug.Log("Enter Wall " + coll.tag);
+        if (otherCollObj.CompareTag("WallLeft"))
+        {
+            //Debug.Log("Enter Wall " + coll.tag + " : " + myColl.isActiveAndEnabled);
+            myColl.enabled = false;
+            m_bCameraStopByWall = true;
+            m_eBeforeDir = gc.GetDirection();
+            m_eNextDir = GameContext.eDirection.Right;
+        }
+        else if (otherCollObj.CompareTag("WallRight"))
+        {
+            myColl.enabled = false;
+            m_bCameraStopByWall = true;
+            m_eBeforeDir = gc.GetDirection();
+            m_eNextDir = GameContext.eDirection.Left;
+        }
+
+    }
+    void OnTriggerStay2D(Collider2D coll)
+    {
+        otherCollObj = coll.gameObject;
+        if (otherCollObj.CompareTag("WallLeft"))
+        {
+            //Debug.Log("Enter Wall " + coll.tag + " : " + myColl.isActiveAndEnabled);
+            m_eNextDir = GameContext.eDirection.Right;
+        }
+        else if (otherCollObj.CompareTag("WallRight"))
+        {
+            m_eNextDir = GameContext.eDirection.Left;
+        }
+    }
+    void OnTriggerExit2D(Collider2D coll)
+    {
+        otherCollObj = coll.gameObject;
+        //Debug.Log("Enter Wall " + coll.tag);
+        if (otherCollObj.CompareTag("WallLeft"))
+        {
+            //Debug.Log("Enter Wall " + coll.tag + " : " + myColl.isActiveAndEnabled);
+            m_bCameraStopByWall = false;
+            m_eNextDir = GameContext.eDirection.Right;
+        }
+        else if (otherCollObj.CompareTag("WallRight"))
+        {
+            m_bCameraStopByWall = false;
+            m_eNextDir = GameContext.eDirection.Left;
+        }
+    }        
+
+    private float IncrementTowards(float n, float target, float a)
+    {
+
+        if (n == target)
+        {
+            return n;
+        }
+        else
+        {
+            float dir = Mathf.Sign(target - n); // must n be increased or decreased to get closer to target
+            n += a * Time.deltaTime * dir;
+            return (dir == Mathf.Sign(target - n)) ? n : target; // if n has now passed target then return target, otherwise return n
+        }
+    }
+	
+}

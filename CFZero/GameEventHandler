@@ -1,0 +1,105 @@
+﻿using UnityEngine;
+
+
+namespace CFW.Framework
+{
+    /// <summary>
+    /// 사운드 이벤트 처리시 이벤트 파라미터 인스턴스를 하나만 두고 돌려쓰기 위한 클래스
+    /// </summary>
+    public class AudioEvent
+    {
+        public static EventParam_PlayAudio Param = new EventParam_PlayAudio();
+        public static EventParam_StopAudio StopParam = new EventParam_StopAudio();
+    }
+
+    public class GameEventHandler : MonoBehaviour
+    {
+        #region Handler 기반 이벤트 처리
+        protected void RegisterEvent(GameEvent gameEvent)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.RegisterEvent(this, gameEvent);
+        }
+
+        /// <summary>
+        /// 이벤트를 등록한 Handler 가 Override 해야 할 이벤트 수신 함수
+        /// </summary>
+        /// <param name="gameEvent"></param>
+        /// <param name="param"></param>
+        /// <returns></returns>
+        public virtual bool OnEvent(GameEvent gameEvent, IGameEventParam param)
+        {
+            return true;
+        }
+
+		public virtual bool OnEvent( GameEvent gameEvent , params object[] param )
+		{
+			return true;
+		}
+
+		protected void UnRegisterEvent(GameEvent gameEvent)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.UnRegisterEvent(gameEvent, this);
+        }
+        #endregion
+
+        #region CallBack 기반 이벤트 처리 - delegate 호출시 Boxing / UnBoxing 에 의한 GC Alloc 발생함
+        public static void RegisterEventCallBack(GameEvent gameEvent, GameEventCallBack callBack)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.RegisterEventCallBack(gameEvent, callBack);
+        }
+
+        public static void UnRegisterEventCallBack(GameEvent gameEvent, GameEventCallBack callBack)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.UnRegisterEventCallBack(gameEvent, callBack);
+        }
+        #endregion
+
+        #region 이벤트 발송기, GameEventHandler 를 상속받은 오브젝트는 SendEvent 를, 그렇지 않은 오브젝트는 DummySendEvent 사용
+        protected void SendEvent(GameEvent gameEvent, IGameEventParam param)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.SendEvent(gameEvent, param);
+        }
+
+		protected void SendEventEx( GameEvent gameEvent , params object[] values )
+		{
+			if( GameEventManager.Instance == null )
+				return;
+
+			GameEventManager.Instance.SendEvent( gameEvent , values );
+		}
+
+		public static void DummySendEvent(GameEvent gameEvent, IGameEventParam param)
+        {
+            if (GameEventManager.Instance == null)
+                return;
+
+            GameEventManager.Instance.SendEvent(gameEvent, param);
+        }
+		public static void DummySendEventEx( GameEvent gameEvent , params object[] values )
+		{
+			if( GameEventManager.Instance == null )
+				return;
+
+			GameEventManager.Instance.SendEvent( gameEvent , values );
+		}
+
+
+		#endregion
+	}
+}
+

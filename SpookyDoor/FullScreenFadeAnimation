@@ -1,0 +1,170 @@
+using UnityEngine;
+using System.Collections;
+
+
+
+public enum eFullScreenFadeState
+{
+    FullScreenFadeState_UnKnown = 0,
+    FullScreenFadeState_FadeIn,
+    FullScreenFadeState_FadeOut,
+    FullScreenFadeState_EndofType,
+}
+
+public class FullScreenFadeAnimation : MonoBehaviour
+{
+
+    private GUIStyle m_BackGroundStyle = new GUIStyle();
+    private Texture2D m_FadeTexture;
+
+    private Color m_OverlayColorCurrent = new Color(0, 0, 0, 0);
+    private float m_fDeltaAlpha = 0.0f;
+    private eFullScreenFadeState m_eCurrState = eFullScreenFadeState.FullScreenFadeState_UnKnown;
+
+    private int m_nFadeGUIDepth = -1000;
+
+    private bool m_bIsFadeComplete = false;
+    public bool IsFadeComplete
+    {
+        get { return m_bIsFadeComplete; }
+    }
+
+    Color m_FadeColor = Color.black;
+    public Color FadeColor
+    {
+        get { return m_FadeColor; }
+        set { m_FadeColor = value; }
+    }
+
+    float m_fFadeDuration = 1.0f;
+    public float FadeDuration
+    {
+        get { return m_fFadeDuration; }
+        set { m_fFadeDuration = value; }
+    }
+
+    private void Awake()
+    {
+        m_FadeTexture = new Texture2D(1, 1);
+        m_BackGroundStyle.normal.background = m_FadeTexture;
+        SetScreenOverlayColor(m_OverlayColorCurrent);
+    }
+
+    private void OnGUI()
+    {
+        switch (m_eCurrState)
+        {
+            case eFullScreenFadeState.FullScreenFadeState_FadeIn:
+                {
+                    m_OverlayColorCurrent.a = m_OverlayColorCurrent.a - (m_fDeltaAlpha * Time.deltaTime);
+                    if (m_OverlayColorCurrent.a < 0.0f)
+                    {
+                        m_OverlayColorCurrent.a = 0.0f;
+                        m_bIsFadeComplete = true;
+                        m_eCurrState = eFullScreenFadeState.FullScreenFadeState_UnKnown;
+                    }
+
+                    SetScreenOverlayColor(m_OverlayColorCurrent);
+                }
+                break;
+
+            case eFullScreenFadeState.FullScreenFadeState_FadeOut:
+                {
+                    m_OverlayColorCurrent.a = m_OverlayColorCurrent.a + (m_fDeltaAlpha * Time.deltaTime);
+                    if (m_OverlayColorCurrent.a > 1.0f)
+                    {
+                        m_OverlayColorCurrent.a = 1.0f;
+                        m_bIsFadeComplete = true;
+                        m_eCurrState = eFullScreenFadeState.FullScreenFadeState_UnKnown;
+                    }
+
+                    SetScreenOverlayColor(m_OverlayColorCurrent);
+                }
+                break;
+        }
+
+        if (m_OverlayColorCurrent.a > 0)
+        {
+            GUI.depth = m_nFadeGUIDepth;
+            GUI.Label(new Rect(-10, -10, Screen.width + 10, Screen.height + 10), m_FadeTexture, m_BackGroundStyle);
+        }
+    }
+
+    public void SetScreenOverlayColor(Color cColor)
+    {
+        m_OverlayColorCurrent = cColor;
+        m_FadeTexture.SetPixel(0, 0, m_OverlayColorCurrent);
+        m_FadeTexture.Apply();
+    }
+
+    public void StartFade(Color cColor, float fFadeDuration, eFullScreenFadeState eState)
+    {
+        m_bIsFadeComplete = false;
+        if (fFadeDuration <= 0.0f)
+        {
+            SetScreenOverlayColor(cColor);
+            m_bIsFadeComplete = true;
+        }
+        else
+        {
+            m_eCurrState = eState;
+            m_fDeltaAlpha = 1.0f / fFadeDuration;
+        }
+    }
+
+    public void FadeIn()
+    {
+        StartCoroutine(FadeInProcess());
+    }
+
+    IEnumerator FadeInProcess()
+    {
+        FullScreenFadeAnimation fadeAnimator = gameObject.GetComponent<FullScreenFadeAnimation>();
+        if (fadeAnimator != null)
+        {
+            m_FadeColor.a = 1.0f;
+            fadeAnimator.SetScreenOverlayColor(m_FadeColor);
+
+            m_FadeColor.a = 0.0f;
+            fadeAnimator.StartFade(m_FadeColor, m_fFadeDuration, eFullScreenFadeState.FullScreenFadeState_FadeIn);
+
+            while (fadeAnimator.IsFadeComplete == false)
+            {
+                yield return 0.0f;
+            }
+        }
+    }
+
+    public void FadeOut()
+    {
+        StartCoroutine(FadeOutProcess());
+    }
+
+    IEnumerator FadeOutProcess()
+    {
+        FullScreenFadeAnimation fadeAnimator = gameObject.GetComponent<FullScreenFadeAnimation>();
+        if (fadeAnimator != null)
+        {
+            if (m_fFadeDuration == 0.1f)
+            {
+                fadeAnimator.SetScreenOverlayColor(m_FadeColor);
+                fadeAnimator.StartFade(m_FadeColor, m_fFadeDuration, eFullScreenFadeState.FullScreenFadeState_FadeOut);
+                yield return 0;
+            }
+            else
+            {
+                m_FadeColor.a = 0.0f;
+                fadeAnimator.SetScreenOverlayColor(m_FadeColor);
+
+                m_FadeColor.a = 1.0f;
+                fadeAnimator.StartFade(m_FadeColor, m_fFadeDuration, eFullScreenFadeState.FullScreenFadeState_FadeOut);
+
+                while (fadeAnimator.IsFadeComplete == false)
+                {
+                    yield return 0.0f;
+                }
+            }
+        }
+    }
+
+}

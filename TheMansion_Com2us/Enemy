@@ -1,0 +1,79 @@
+using UnityEngine;
+using System.Collections;
+
+public class Enemy : MonoBehaviour 
+{
+    protected CharacterController controller = null;
+    protected Vector3 directionVector = Vector3.zero;
+    protected float moveSpeed = 14.0f;
+    protected float moveHorizentalDir = 0.0f;
+    protected float moveVerticalDir = 0.0f;
+
+    protected Transform myTransform = null;
+    protected Room roomIncludeDoll = null;
+    protected Animation myAnimation = null;
+
+    protected Room previousRoom = null;
+    protected Room oldRoom = null;
+    protected Room nextRoom = null;
+
+    protected FXFactory fxFactory
+    {
+        get
+        {
+            if (_fxFactory == null)
+            {
+                GameObject obj = GameObject.Find("FXFactory");
+                if (obj != null)
+                    _fxFactory = obj.GetComponent<FXFactory>();
+            }
+            return _fxFactory;
+        }
+    }FXFactory _fxFactory;
+
+    protected void Awake()
+    {
+        myTransform = transform;
+        myAnimation = myTransform.GetComponentInChildren<Animation>();
+    }
+
+    protected IEnumerator Start() 
+    {
+        GameContext gc = GameContext.GetInstance;
+        while (gc.stage.mainCharacter == null)
+            yield return 0;
+	}
+
+    protected void Update() 
+    {
+        OnPreUpdate(Time.deltaTime);
+        DoAction();
+        SetAnimation();
+	}
+
+    protected virtual void OnControllerColliderHit(ControllerColliderHit hit){}
+    protected virtual void OnPreUpdate(float deltaTime){}
+    protected virtual void DoAction(){}
+    protected virtual void SetAnimation(){}
+    protected virtual void Attack(){}
+    protected virtual void Sleep(){}
+    protected virtual void Movement(float direction = 0) { }
+    protected virtual void Move(){}
+    
+    protected void SetRoomIncludeEnemy()
+    {
+        roomIncludeDoll = GetBelongToRoom();
+    }
+
+    public Room GetBelongToRoom()
+    {
+        Ray ray = new Ray(myTransform.position + new Vector3(0.0f, 0.0f, -10.0f), Vector3.forward);
+        RaycastHit hit = new RaycastHit();
+        Room myRoom = null;
+        if (Physics.Raycast(ray, out hit, 15.0f, (1 << LayerMask.NameToLayer("room"))))
+        {
+            myRoom = hit.transform.GetComponent<Room>();
+        }
+        return myRoom;
+    }
+}

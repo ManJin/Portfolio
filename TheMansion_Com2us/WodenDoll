@@ -1,0 +1,862 @@
+using UnityEngine;
+using System.Collections;
+
+public class WodenDoll : Enemy
+{
+    #region Variable
+    DollMoveQueue<Vector3> TempmoveQueue = new DollMoveQueue<Vector3>();
+
+    Vector3 cameraPosOrigin;
+    bool dollComplete = false;
+
+    bool dollStuck = false;
+
+    WodenDollState _state = WodenDollState.Idle;
+
+    public WodenDollState State
+    {
+        get { return _state; }
+    }
+
+    public bool DollInitialAnimation = false;
+
+    Room beforeAnnRoom = null;
+    Vector3 destination = new Vector3(-999.0f, -999.0f, -999.0f);
+    Vector3 targetDestination = Vector3.zero;
+    bool dollMoveEnabled = false;
+
+    float verticalSpeed = 1.5f;
+    float horizentalSpeed = 1.0f;
+    bool completeAniPlayed = false;
+    bool aniProcess = false;
+
+    bool suicide = false;
+    #endregion
+    #region MonoBehaviourMethod
+    new void Awake()
+    {
+        base.Awake();
+        ObjectFactory objFactory = GameObject.Find("ObjectFactory").GetComponent<ObjectFactory>();
+
+        objFactory.RemoveLightParts(gameObject);
+    }
+
+    new IEnumerator Start()
+    {
+        base.Start();
+        completeAniPlayed = false;
+        DollInitialAnimation = true;
+        _state = WodenDollState.Complete;
+        myAnimation = GetComponentInChildren<Animation>();
+        controller = GetComponent<CharacterController>();
+        myAnimation["up_move"].speed = 1.0f;// 0.7f;// 1.0f;
+        myAnimation["down_move"].speed = 1.0f;// 0.7f;// 1.0f;
+        myAnimation["walk_stop"].speed = 1.2f;
+        yield return 0;
+    }
+
+    new void Update()
+    {
+        base.Update();
+    }
+
+    #endregion
+    #region publicMethod
+    public void DollDead()
+    {
+        //Debug.Log("DollDead");
+        GameContext.GetInstance.playLog.DestroyMarionette();
+        _state = WodenDollState.GameClear;
+    }
+    public void DollAttack()
+    {
+        _state = WodenDollState.Attack;
+        TempmoveQueue.Clear();
+        dollMoveEnabled = false;
+        moveVerticalDir = 0;
+        iTween[] ttt = gameObject.GetComponents<iTween>();
+        foreach (iTween t in ttt)
+            Component.DestroyImmediate(t);
+    }
+    public bool GetDollActivate()
+    {
+        return dollComplete;
+    }
+    #endregion
+    bool IsPossibleAttack()
+    {
+        return false;
+    }
+
+    void DirectionMove(int direction)
+    {
+        if (targetDestination != Vector3.zero)
+        {
+            if (direction == -1)
+            {//l
+                SetRoomIncludeEnemy();
+                RoomManager rm = RoomManager.GetInstance;
+                GameContext gc = GameContext.GetInstance;
+                int leftX = roomIncludeDoll.positionX - 1;
+                if (leftX <= 0)
+                    leftX = 0;
+                int leftRoomID = gc.stage.rooms[leftX, roomIncludeDoll.positionY];
+                Room nextDollRoom = rm[leftRoomID];
+                if (roomIncludeDoll.positionX == 0)
+                {
+                    Vector3 lastVal = TempmoveQueue.LastValue();
+                    if (lastVal.x < 0.0f)
+                        lastVal = Vector3.zero;
+                    TempmoveQueue.Clear();
+                    TempmoveQueue.Push(lastVal);
+                    moveHorizentalDir = 0;
+                    dollMoveEnabled = false;
+                    _state = WodenDollState.Idle;
+                    StopMove(direction);
+                    return;
+                }
+                else
+                {
+                    if (nextDollRoom != null)
+                    {
+                        if (roomIncludeDoll.GetWallType(3) != RoomWallType.None || nextDollRoom.GetWallType(1) != RoomWallType.None)// 0 Up  1 Right 2 Down 3 Left 
+                        {
+                            Vector3 lastVal = TempmoveQueue.LastValue();
+                            if (lastVal.x < 0.0f)
+                                lastVal = Vector3.zero;
+                            TempmoveQueue.Clear();
+                            TempmoveQueue.Push(lastVal);
+                            moveHorizentalDir = 0;
+                            dollMoveEnabled = false;
+                            _state = WodenDollState.Idle;
+                            StopMove(direction);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        Vector3 lastVal = TempmoveQueue.LastValue();
+                        if (lastVal.x < 0.0f)
+                            lastVal = Vector3.zero;
+                        TempmoveQueue.Clear();
+                        TempmoveQueue.Push(lastVal);
+                        moveHorizentalDir = 0;
+                        dollMoveEnabled = false;
+                        _state = WodenDollState.Idle;
+                        StopMove(direction);
+                        return;
+                    }
+                }
+                iTween.RotateTo(gameObject, iTween.Hash("rotation", new Vector3(0.0f, 90.0f, 0.0f), "time", 0.3f));
+                moveHorizentalDir = -1;
+                iTween.MoveTo(gameObject, iTween.Hash("position", targetDestination, "time", horizentalSpeed, "easetype", iTween.EaseType.linear));
+                StartCoroutine(MoveAfter());
+            }
+            else if (direction == 1)
+            {//r
+                RoomManager rm = RoomManager.GetInstance;
+                GameContext gc = GameContext.GetInstance;
+                int rightX = roomIncludeDoll.positionX + 1;
+                if (rightX >= gc.stage.Width - 1)
+                    rightX = gc.stage.Width - 1;
+                int rightRoomID = gc.stage.rooms[rightX, roomIncludeDoll.positionY];
+                Room nextDollRoom = rm[rightRoomID];
+                if (roomIncludeDoll.positionX == gc.stage.Width - 1)
+                {
+                    Vector3 lastVal = TempmoveQueue.LastValue();
+                    if (lastVal.x > 0.0f)
+                        lastVal = Vector3.zero;
+                    TempmoveQueue.Clear();
+                    TempmoveQueue.Push(lastVal);
+                    moveHorizentalDir = 0;
+                    dollMoveEnabled = false;
+                    _state = WodenDollState.Idle;
+                    StopMove(direction);
+                    return;
+                }
+                else
+                {
+                    if (nextDollRoom != null)
+                    {
+                        if (roomIncludeDoll.GetWallType(1) != RoomWallType.None || nextDollRoom.GetWallType(3) != RoomWallType.None)// 0 Up  1 Right 2 Down 3 Left 
+                        {
+                            Vector3 lastVal = TempmoveQueue.LastValue();
+                            if (lastVal.x > 0.0f)
+                                lastVal = Vector3.zero;
+                            TempmoveQueue.Clear();
+                            TempmoveQueue.Push(lastVal);
+                            moveHorizentalDir = 0;
+                            dollMoveEnabled = false;
+                            _state = WodenDollState.Idle;
+                            StopMove(direction);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        Vector3 lastVal = TempmoveQueue.LastValue();
+                        if (lastVal.x > 0.0f)
+                            lastVal = Vector3.zero;
+                        TempmoveQueue.Clear();
+                        TempmoveQueue.Push(lastVal);
+                        moveHorizentalDir = 0;
+                        dollMoveEnabled = false;
+                        _state = WodenDollState.Idle;
+                        StopMove(direction);
+                        return;
+                    }
+                }
+                iTween.RotateTo(gameObject, iTween.Hash("rotation", new Vector3(0.0f, 270.0f, 0.0f), "time", 0.3f));
+                moveHorizentalDir = 1;
+                iTween.MoveTo(gameObject, iTween.Hash("position", targetDestination, "time", horizentalSpeed, "easetype", iTween.EaseType.linear));
+                StartCoroutine(MoveAfter());
+            }
+        }
+    }
+
+    IEnumerator MoveAfter()
+    {
+        yield return new WaitForSeconds(1.0f);
+        _state = WodenDollState.Idle;
+        dollMoveEnabled = false;
+        moveHorizentalDir = 0;
+        moveVerticalDir = 0;
+        targetDestination = Vector3.zero;
+        SetRoomIncludeEnemy();
+    }
+
+    IEnumerator DollCompleteAnimationFinish(float time)
+    {
+        yield return new WaitForSeconds(time);
+        DollInitialAnimation = false;
+    }
+    #region OldMoveAlgorithm
+    protected override void OnPreUpdate(float deltaTime)
+    {
+        GameContext gc = GameContext.GetInstance;
+        Character ann = gc.stage.mainCharacter;
+        Room annRoom = RoomManager.GetInstance.GetFocusRoom();
+
+        //if (_state != WodenDollState.Dead)
+        //{
+        //    GameClear();
+        //}
+
+        if (dollStuck)
+        {
+            if (ann.State == CharacterState.Move || ann.State == CharacterState.Ladder)
+            {
+                dollStuck = false;
+            }
+        }
+        if (ann.State == CharacterState.CallPutUp || ann.State == CharacterState.CallPutDown || ann.State == CharacterState.ClosetEnter || ann.State == CharacterState.ClosetLeave
+            || ann.State == CharacterState.ClosetFX || _state == WodenDollState.Faint || _state == WodenDollState.Sleep)
+        {
+            beforeAnnRoom = RoomManager.GetInstance.GetFocusRoom();
+            return;
+        }
+
+        PrepareMove();
+
+        switch (_state)
+        {
+            case WodenDollState.Complete:
+
+                if (!aniProcess && myAnimation["activate"].time > 0)
+                    aniProcess = true;
+
+                if ((dollComplete && completeAniPlayed && myAnimation["activate"].time == 0 && aniProcess))
+                {
+                    iTween.MoveTo(Camera.mainCamera.gameObject, iTween.Hash("position", cameraPosOrigin, "time", 1.0f));
+                    gc.stage.mainCharacter.enabled = true;
+                    annRoom.GetComponent<Room>().enabled = true;
+                    BoxCollider[] bx = annRoom.GetComponentsInChildren<BoxCollider>();
+                    foreach (BoxCollider b in bx)
+                    {
+                        if (b.name.EndsWith("Arrow"))
+                            b.enabled = true;
+                    }
+                    _state = WodenDollState.Idle;
+                    StartCoroutine(DollCompleteAnimationFinish(1.2f));
+                }
+                else
+                {
+                    if (!dollComplete)
+                    {
+                        cameraPosOrigin = Camera.mainCamera.transform.position;
+                        Vector3 showDollPositon = myTransform.position; 
+                        showDollPositon.y += 6.5f;
+                        showDollPositon.z = -36.0f;
+                        iTween.MoveTo(Camera.mainCamera.gameObject, iTween.Hash("position", showDollPositon, "time", 1.0f));
+                        //gc.stage.mainCharacter.enabled = false;
+                        //annRoom.GetComponent<Room>().enabled = false;
+                        BoxCollider[] bx = annRoom.GetComponentsInChildren<BoxCollider>();
+                        foreach (BoxCollider b in bx)
+                        {
+                            if (b.name.EndsWith("Arrow"))
+                                b.enabled = false;
+                        }
+                        dollComplete = true;
+                    }
+                }
+                break;
+            case WodenDollState.Move:
+                {
+                    if (roomIncludeDoll == annRoom)
+                    {
+                        _state = WodenDollState.Attack;
+                    }
+                    if (TempmoveQueue.Count == 0)
+                    {
+                        _state = WodenDollState.Idle;
+                    }
+                }
+                break;
+            case WodenDollState.Idle:
+                SetRoomIncludeEnemy();
+                if (TempmoveQueue.Count > 0 && _state != WodenDollState.GameClear && !dollMoveEnabled)
+                {
+                    if (!dollStuck)
+                    {
+                        _state = WodenDollState.Move;
+                    }
+                }
+
+                if (roomIncludeDoll != null)
+                {
+                    if (roomIncludeDoll == annRoom)
+                    {
+                        _state = WodenDollState.Attack;
+                    }
+                    GameObject ventilator = roomIncludeDoll.GetRoomObject(RoomObject.ObjectType.Ventilator);
+                    if (ventilator != null)
+                    {
+                        Ventilator ven = ventilator.GetComponent<Ventilator>();
+                        if (ven.IsExistGas)
+                            _state = WodenDollState.Faint;
+                    }
+                }
+
+                break;
+            case WodenDollState.Attack:
+                if (ann.State != CharacterState.Ladder)
+                {
+                    suicide = true;
+                    TempmoveQueue.Clear();
+                }
+                
+                break;
+            case WodenDollState.Faint:
+                break;
+            case WodenDollState.Sleep:
+                break;
+            case WodenDollState.Awake:
+                break;
+            case WodenDollState.JumpUp:
+                if (roomIncludeDoll == annRoom)
+                {
+                    _state = WodenDollState.Attack;
+                    TempmoveQueue.Clear();
+                    dollMoveEnabled = false;
+                    moveVerticalDir = 0;
+                    iTween[] ttt = gameObject.GetComponents<iTween>();
+                    foreach (iTween t in ttt)
+                        Component.DestroyImmediate(t);
+                }
+                break;
+            case WodenDollState.JumpDown:
+                if (roomIncludeDoll == annRoom)
+                {
+                    _state = WodenDollState.Attack;
+                    TempmoveQueue.Clear();
+                    dollMoveEnabled = false;
+                    moveVerticalDir = 0;
+                    iTween[] ttt = gameObject.GetComponents<iTween>();
+                    foreach (iTween t in ttt)
+                        Component.DestroyImmediate(t);
+                }
+                break;
+            case WodenDollState.UpStop:
+                if (roomIncludeDoll == annRoom)
+                    _state = WodenDollState.Attack;
+                break;
+            case WodenDollState.GameClear:
+                break;
+            default:
+                break;
+        }
+    }
+    #endregion
+    protected override void DoAction()
+    {
+        switch (_state)
+        {
+            case WodenDollState.Complete:
+                SetRoomIncludeEnemy();
+                break;
+            case WodenDollState.Move:
+                if (TempmoveQueue.Count > 0 && !dollMoveEnabled && _state != WodenDollState.GameClear)
+                    Move();
+                break;
+            case WodenDollState.MoveLeft:
+                if (moveHorizentalDir != -1)
+                    DirectionMove(-1);
+                break;
+            case WodenDollState.MoveRight:
+                if (moveHorizentalDir != 1)
+                    DirectionMove(1);
+                break;
+            case WodenDollState.Idle:
+                SetRoomIncludeEnemy();
+                break;
+            case WodenDollState.Attack:
+                TempmoveQueue.Clear();
+                Attack();
+                break;
+            case WodenDollState.Faint:
+                break;
+            case WodenDollState.Sleep:
+                Sleep();
+                break;
+            case WodenDollState.Awake:
+                break;
+            case WodenDollState.JumpUp:
+                if (moveVerticalDir != 1)
+                    Jump(1);
+                break;
+            case WodenDollState.JumpDown:
+                if (moveVerticalDir != -1)
+                    Jump(-1);
+                break;
+            case WodenDollState.GameClear:
+                break;
+            default:
+                break;
+        }
+    }
+
+    protected override void SetAnimation()
+    {
+        switch (_state)
+        {
+            case WodenDollState.Complete:
+                if (!myAnimation.IsPlaying("activate") && !completeAniPlayed)
+                {
+                    myAnimation.Rewind("activate");
+                    myAnimation.CrossFade("activate");
+                    SetRoomIncludeEnemy();
+                    completeAniPlayed = true;
+                }
+                break;
+            case WodenDollState.Move:
+                break;
+            case WodenDollState.MoveLeft:
+                if (!myAnimation.IsPlaying("walk"))
+                {
+                    myAnimation.Rewind("walk");
+                    myAnimation.CrossFade("walk");
+                }
+                break;
+            case WodenDollState.MoveRight:
+                if (!myAnimation.IsPlaying("walk"))
+                {
+                    myAnimation.Rewind("walk");
+                    myAnimation.CrossFade("walk");
+                }
+                break;
+            case WodenDollState.Idle:
+                if (!myAnimation.IsPlaying("idle"))
+                {
+                    if (myTransform.forward != new Vector3(0.0f, 0.0f, 1.0f))
+                        iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    myAnimation.Rewind("idle");
+                    myAnimation.CrossFade("idle");
+                    SetRoomIncludeEnemy();
+                }
+                break;
+            case WodenDollState.Attack:
+                if (suicide)
+                {
+                    TempmoveQueue.Clear();
+                    if (myAnimation["destruct"].time >= myAnimation["destruct"].length - 0.05f)
+                    {
+                        _state = WodenDollState.Dead;
+                        Vector3 bombPos = myTransform.position;
+                        bombPos.y = myTransform.position.y + 8.25f;
+                        fxFactory.CreateExplodeToMarionetteEffect(bombPos);
+                        Renderer[] rend = this.GetComponentsInChildren<Renderer>();
+                        foreach (Renderer rr in rend)
+                            rr.enabled = false;
+
+
+                        GameContext gc = GameContext.GetInstance;
+                        Character ann = gc.stage.mainCharacter;
+                        ann.SetBlackenAnnDelay();
+                    }
+
+                    if (!myAnimation.IsPlaying("destruct"))
+                    {
+                        iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                        myAnimation.Rewind("destruct");
+                        myAnimation.CrossFade("destruct");
+                    }
+                }
+                break;
+            case WodenDollState.Faint:
+                if (!myAnimation.IsPlaying("faint"))
+                {
+                    iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    myAnimation["faint"].time = 0.0f;
+                    myAnimation["faint"].speed = 1.0f;
+                    myAnimation.CrossFade("faint");
+                }
+                else if (myAnimation["faint"].time >= myAnimation["faint"].length - 0.1f)
+                {
+                    _state = WodenDollState.Sleep;
+                }
+                break;
+            case WodenDollState.Sleep:
+                break;
+            case WodenDollState.Awake:
+                if (!myAnimation.IsPlaying("faint"))
+                {
+                    iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    myAnimation["faint"].time = myAnimation["faint"].length;
+                    myAnimation["faint"].speed = -1.0f;
+                    myAnimation.CrossFade("faint");
+                }
+                else if (myAnimation["faint"].time <= 0.1f)
+                {
+                    _state = WodenDollState.Idle;
+                    SetRoomIncludeEnemy();
+                }
+                break;
+            case WodenDollState.JumpUp:
+                if (!myAnimation.IsPlaying("up_move") && !myAnimation.IsPlaying("up_move_end"))
+                {
+                    myAnimation.Rewind("up_move");
+                    myAnimation.CrossFade("up_move");
+                    myAnimation.CrossFadeQueued("up_move_end");
+
+                }
+                break;
+            case WodenDollState.JumpDown:
+                if (!myAnimation.IsPlaying("down_move") && !myAnimation.IsPlaying("down_move_end"))
+                {
+                    myAnimation.Rewind("down_move");
+                    myAnimation.CrossFade("down_move");
+                    myAnimation.CrossFadeQueued("down_move_end");
+                }
+                break;
+            case WodenDollState.Stop:
+                if (myAnimation["walk_stop"].time >= myAnimation["walk_stop"].length - 0.1f)
+                {
+                    iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    _state = WodenDollState.Idle;
+                }
+                if (!myAnimation.IsPlaying("walk_stop"))
+                {
+                    myAnimation.Rewind("walk_stop");
+                    myAnimation.CrossFade("walk_stop");
+                }
+                break;
+            case WodenDollState.GameClear:
+                if (!myAnimation.IsPlaying("faint"))
+                {
+                    iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    myAnimation["faint"].time = 0.0f;
+                    myAnimation["faint"].speed = 1.0f;
+                    myAnimation.CrossFade("faint");
+                }
+                else if (myAnimation["faint"].time >= myAnimation["faint"].length - 0.1f)
+                {
+                    _state = WodenDollState.Dead;
+                }
+                break;
+            case WodenDollState.UpStop:
+                if (myAnimation["stop"].time >= myAnimation["stop"].length - 0.1f)
+                {
+                    iTween.RotateTo(gameObject, Vector3.zero, 0.3f);
+                    _state = WodenDollState.Idle;
+                }
+                if (!myAnimation.IsPlaying("stop"))
+                {
+                    myAnimation.Rewind("stop");
+                    myAnimation.CrossFade("stop");
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    void StopMove(int direction)
+    {
+        StartCoroutine(StopStep(direction));
+    }
+    IEnumerator StopStep(int dir)
+    {
+        if (dir == 1)
+        {
+            iTween.RotateTo(gameObject, iTween.Hash("rotation", new Vector3(0.0f, 270.0f, 0.0f), "time", 0.1f));
+            _state = WodenDollState.Stop;
+
+        }
+        else if (dir == -1)
+        {
+            iTween.RotateTo(gameObject, iTween.Hash("rotation", new Vector3(0.0f, 90.0f, 0.0f), "time", 0.1f));
+            _state = WodenDollState.Stop;
+        }
+        yield return 0;
+    }
+    void PrepareMove()
+    {
+        Room nowRoom = RoomManager.GetInstance.GetFocusRoom();
+        GameContext gc = GameContext.GetInstance;
+        Character ann = gc.stage.mainCharacter.GetComponent<Character>();
+
+        if (ann.State == CharacterState.CallPutUp || ann.State == CharacterState.CallPutDown || ann.State == CharacterState.CallTeleport
+            || ann.State == CharacterState.ClosetEnter || ann.State == CharacterState.ClosetFX || ann.State == CharacterState.ClosetLeave)
+        {
+            beforeAnnRoom = nowRoom;
+        }
+
+        if (nowRoom == beforeAnnRoom)
+            return;
+
+        if (beforeAnnRoom == null)
+            beforeAnnRoom = nowRoom;
+
+        Vector3 oldPos = beforeAnnRoom.transform.position;
+        Vector3 nowPos = nowRoom.transform.position;
+        Vector3 targetPosition = nowPos - oldPos;
+
+        TempmoveQueue.Push(targetPosition);
+
+        beforeAnnRoom = nowRoom;
+    }
+
+    protected override void Move()
+    {
+        if (_state == WodenDollState.GameClear)
+        {
+            //Debug.Log("AAAAAAAAAAAAAAAA");
+            return; 
+        }
+            
+        destination = TempmoveQueue.Pop();
+        if (destination.x > 0.0f)
+        {
+            _state = WodenDollState.MoveRight;
+            dollMoveEnabled = true;
+        }
+        else if (destination.x < 0.0f)
+        {
+            _state = WodenDollState.MoveLeft;
+            dollMoveEnabled = true;
+        }
+        else if (destination.y > 0.0f)
+        {
+            _state = WodenDollState.JumpUp;
+            dollMoveEnabled = true;
+        }
+        else if (destination.y < 0.0f)
+        {
+            _state = WodenDollState.JumpDown;
+            dollMoveEnabled = true;
+        }
+        targetDestination = myTransform.position + destination;
+    }
+
+    void Jump(int direction)
+    {
+        if (_state == WodenDollState.Attack)
+        {
+            TempmoveQueue.Clear();
+            dollMoveEnabled = false;
+            moveVerticalDir = 0;
+            iTween[] ttt = gameObject.GetComponents<iTween>();
+            foreach(iTween t in ttt)
+                Component.DestroyImmediate(t);
+            return;
+        }
+
+        if (direction == 1)
+        {
+            RoomManager rm = RoomManager.GetInstance;
+            GameContext gc = GameContext.GetInstance;
+            int upY = roomIncludeDoll.positionY + 1;
+            if (upY >= gc.stage.Height - 1)
+                upY = gc.stage.Height - 1;
+            int upRoomID = gc.stage.rooms[roomIncludeDoll.positionX, upY];
+            Room nextDollRoom = rm[upRoomID];
+            if (roomIncludeDoll.positionY == gc.stage.Height - 1)
+            {
+                TempmoveQueue.Clear();
+                moveVerticalDir = 0;
+                dollMoveEnabled = false;
+                _state = WodenDollState.UpStop;
+                return;
+            }
+            else
+            {
+                if (nextDollRoom != null)
+                {
+                    if (roomIncludeDoll.GetWallType(0) != RoomWallType.None || nextDollRoom.GetWallType(2) != RoomWallType.None)// 0 Up  1 Right 2 Down 3 Left 
+                    {
+                        TempmoveQueue.Clear();
+                        moveVerticalDir = 0;
+                        dollMoveEnabled = false;
+                        _state = WodenDollState.UpStop;
+                        return;
+                    }
+                }
+                else
+                {
+                    TempmoveQueue.Clear();
+                    moveVerticalDir = 0;
+                    dollMoveEnabled = false;
+                    _state = WodenDollState.UpStop;
+                    return;
+                }
+            }
+            iTween.RotateTo(gameObject, iTween.Hash("rotation", Vector3.zero, "time", 0.3f));
+            iTween.MoveTo(gameObject, iTween.Hash("position", targetDestination, "time", verticalSpeed, "easetype", iTween.EaseType.linear));
+            moveVerticalDir = 1;
+        }
+        else if (direction == -1)
+        {
+            RoomManager rm = RoomManager.GetInstance;
+            GameContext gc = GameContext.GetInstance;
+            int downY = roomIncludeDoll.positionY - 1;
+            if (downY <= 0)
+                downY = 0;
+            int downRoomID = gc.stage.rooms[roomIncludeDoll.positionX, downY];
+            Room nextDollRoom = rm[downRoomID];
+            if (roomIncludeDoll.positionY == 0)
+            {
+                TempmoveQueue.Clear();
+                moveVerticalDir = 0;
+                dollMoveEnabled = false;
+                _state = WodenDollState.UpStop;
+                return;
+            }
+            else
+            {
+                if (nextDollRoom != null)
+                {
+                    if (roomIncludeDoll.GetWallType(2) != RoomWallType.None || nextDollRoom.GetWallType(0) != RoomWallType.None)// 0 Up  1 Right 2 Down 3 Left 
+                    {
+                        TempmoveQueue.Clear();
+                        moveVerticalDir = 0;
+                        dollMoveEnabled = false;
+                        _state = WodenDollState.UpStop;
+                        return;
+                    }
+                }
+                else
+                {
+                    TempmoveQueue.Clear();
+                    moveVerticalDir = 0;
+                    dollMoveEnabled = false;
+                    _state = WodenDollState.UpStop;
+                    return;
+                }
+            }
+            iTween.RotateTo(gameObject, iTween.Hash("rotation", Vector3.zero, "time", 0.3f));
+            iTween.MoveTo(gameObject, iTween.Hash("position", targetDestination, "time", verticalSpeed, "easetype", iTween.EaseType.linear));
+            moveVerticalDir = -1;
+        }
+        else
+        {
+            myTransform.position = new Vector3(myTransform.position.x, roomIncludeDoll.transform.position.y - 8.25f, myTransform.position.z);
+            _state = WodenDollState.UpStop;
+        }
+        StartCoroutine(JumpAfter(direction));
+    }
+    IEnumerator JumpAfter(int dir)
+    {
+        if (dir == 1)
+            yield return new WaitForSeconds(myAnimation["up_move"].length + myAnimation["up_move_end"].length / 5.0f);
+        else if (dir == -1)
+            yield return new WaitForSeconds(myAnimation["down_move"].length + myAnimation["down_move_end"].length / 5.0f);
+
+        //착지 애니메이션 플레이 .
+        // 이후 아래내용 이행. 
+        //Debug.Log("14");
+        if (_state != WodenDollState.GameClear)
+        {
+            _state = WodenDollState.Idle;
+            dollMoveEnabled = false;
+            moveHorizentalDir = 0;
+            moveVerticalDir = 0;
+            targetDestination = Vector3.zero;
+            SetRoomIncludeEnemy();
+        }
+
+    }
+    protected override void Attack()
+    {
+        if (suicide)
+        {
+            GameContext gc = GameContext.GetInstance;
+            Character ann = gc.stage.mainCharacter;
+            ann.AcrossMarionette();
+        }
+    }
+
+    protected override void Sleep()
+    {
+        SetRoomIncludeEnemy();
+        if (roomIncludeDoll != null)
+        {
+            GameObject ventilatroObj = roomIncludeDoll.GetRoomObject(RoomObject.ObjectType.Ventilator);
+            if( ventilatroObj != null )
+            {
+                Ventilator ven = ventilatroObj.GetComponent<Ventilator>();
+                if (!ven.IsExistGas)
+                    _state = WodenDollState.Awake;
+            }
+            
+        }
+    }
+
+    public bool GameClear()
+    {
+        if (_state == WodenDollState.Dead || _state == WodenDollState.GameClear)
+        {
+            return true;
+        }
+        else if (_state != WodenDollState.Attack)
+        {
+            Room annRoom = RoomManager.GetInstance.GetFocusRoom();
+            if (roomIncludeDoll.id == annRoom.id)
+            {
+                _state = WodenDollState.Attack;
+                return false;
+            }
+            _state = WodenDollState.GameClear;
+            return true;
+        }
+
+        return false;
+    }
+}
+
+public enum WodenDollState
+{
+    Complete,
+    Move,
+    Idle,
+    Attack,
+    Faint,
+    Sleep,
+    Awake,
+    JumpUp,
+    JumpDown,
+    Dead,
+    Stop,
+    GameClear,
+    MoveLeft,
+    MoveRight,
+    UpStop,
+}

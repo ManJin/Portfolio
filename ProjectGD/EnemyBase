@@ -1,0 +1,124 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class EnemyBase : MonoBehaviour {
+
+	public enum State
+    {
+        INIT = 0,
+        IDLE,
+        DAMAGED,
+        ATTACK,
+        MOVE,//FIND
+        DEATH,
+        WIN,
+    }
+
+    public struct Stat
+    {
+        public int level;
+        public float power;
+        public float technique;
+        public float mental;
+        public float vital;
+
+    }
+    public struct BattleStat
+    {
+        public float lifeGuage;
+        public float attack;
+        public float movSpeed;
+
+        public Quaternion awaerRange_1st;
+        public Quaternion awaerRange_2st;
+        public Quaternion awaerRange_3st;
+
+        public float _1stRange;
+        public float _2ndRange;
+    }
+
+    public PlayMakerFSM GolemFSM
+    {
+        get { return GolemFsm; }
+    }
+
+    public Stat myStat;
+
+    [HideInInspector]
+    public EffectPlayer GolemEffectPlayer = null;
+    public Animator GolemAnimator = null;
+
+    protected State myState = State.INIT;
+    protected BattleStat myBattleStat;
+    protected PlayMakerFSM GolemFsm = null;
+    protected Transform myTrans = null;
+    private State preState;
+    public GolemSetting Setting = null;
+    void Awake()
+    {
+        GolemFsm = transform.GetComponent<PlayMakerFSM>();
+        GolemEffectPlayer = transform.GetComponentInChildren<EffectPlayer>();
+        GolemAnimator = transform.GetComponentInChildren<Animator>();
+        myTrans = transform;
+    }
+
+	protected virtual void Start () 
+    {
+        myState = State.INIT;
+        myStat = new Stat();
+        myBattleStat = new BattleStat();
+        Setting = new GolemSetting();
+	}
+
+    public void SetState(State state)
+    {
+        preState = myState;
+        myState = state;
+    }
+    public State GetState()
+    {
+        return myState;
+    }
+    public State GetPreState()
+    {
+        return preState;
+    }
+    public void TryAttack()
+    {
+        myState = State.ATTACK;
+    }
+    public float GetRemainLife()
+    {
+        return myBattleStat.lifeGuage;
+    }
+    public float GetPower()
+    {
+        return myBattleStat.attack;
+    }
+    public void GetDamage(float amount)
+    {
+        myBattleStat.lifeGuage -= amount;
+
+        if (myBattleStat.lifeGuage < 0 && myState != State.DEATH)
+        {
+            GolemDead();
+            GolemFsm.SendEvent("DIE");
+        }
+    }
+    public void GolemDead()
+    {
+        myState = State.DEATH;
+    }
+    public float GetGolemLifePercentage()
+    {
+        float tempVal = 0;
+        Setting.statusDic.TryGetValue("Life" , out tempVal);
+        return (myBattleStat.lifeGuage / tempVal) * 100.0f;
+    }
+    
+    public Transform GetTransform()
+    {
+        return myTrans;
+    }
+
+}

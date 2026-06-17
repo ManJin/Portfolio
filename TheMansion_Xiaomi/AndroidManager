@@ -1,0 +1,124 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class AndroidManager : MonoBehaviour
+{
+#if UNITY_ANDROID
+    private AndroidJavaObject curActivity;
+    public string strLog = "No Java Log";
+    static AndroidManager _instance;
+    public enum XiaomiCallbackMessage
+    {
+        LICENSE_NULL = -1,
+        LICENSE_STATUS_LICENSED = 0,
+        LICENSE_STATUS_NOT_LICENSED = 1000,
+        LICENSE_STATUS_RETRY = 1001,
+        ERROR_NOT_BIND_TO_SERVICE = 1002,
+        ERROR_NO_XIAOMI_ACCOUNT = 4000,
+        ERROR_LICENSE_GETAUTHFILE = 4001,
+        ERROR_NETWORK_ERROR = 4002,
+        ERROR_LICENSE_GETRESULT = 4003,
+        ERROR_LICENSE_SERVERERROR = 4004,
+        ERROR_CHACK_LECENSE_EXCEPTION = 4005,
+        ERROR_CHACK_LICENSE_CHECKTIMEOUT = 4006,
+
+    }
+    XiaomiCallbackMessage recivedMessage = XiaomiCallbackMessage.LICENSE_NULL;
+    public static AndroidManager GetInstance()
+    {
+        if (_instance == null)
+        {
+            _instance = GameObject.Find("AndroidManager").GetComponent<AndroidManager>();
+        }
+        return _instance;
+    }
+    void Awake()
+    {
+        ///&lt; 현재 활성화된 액티비티 얻어와서 저장
+        DontDestroyOnLoad(this);
+        Debug.Log("AndroidManager : Awake() ");
+        AndroidJavaClass jc = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+        Debug.Log("AndroidManager : JC " + jc);
+        curActivity = jc.GetStatic<AndroidJavaObject>("currentActivity");
+        Debug.Log("AndroidManager : curActivity " + curActivity);
+    }
+    void Start()
+    {
+        Debug.Log("AndroidManager : Start");
+        StartAuth();
+    }
+
+    void StartAuth()
+    {
+        Debug.Log("AndroidManager : StartAuth");
+        CallJavaFunc("SetXiaomiAppID", ComponentSwitch.xiaomiAppID);
+        CallJavaFunc("SetXiaomiAppKey", ComponentSwitch.xiaomiAppKey);
+        CallJavaFunc("SetXiaomiRSAPublicKey", ComponentSwitch.xiaomiRSAPublicKey);
+        CallJavaFunc("XiaomiConnectionCheck", "XiaomiConnectionCheck Start");
+    }
+    public void CallJavaFunc(string strFuncName, string strTemp)
+    {
+        Debug.Log("AndroidManager : CallJavaFunc : " + strFuncName +" , " + strTemp);
+        if (curActivity == null)
+        {
+            Debug.Log("AndroidManager : curActivity is null : ");
+            return;
+        }
+            ///&lt; 액티비티안의 자바 메소드 호출
+        Debug.Log("AndroidManager : Call : ");
+        curActivity.Call(strFuncName, strTemp);
+    }
+    void SetJavaLog(string strJavaLog)
+    {
+
+        XiaomiCallbackMessage msg;
+        int msgint = -1;
+        if (int.TryParse(strJavaLog, out msgint))
+        {
+            msg = (XiaomiCallbackMessage)msgint;
+            Debug.Log("Message Convert : " + msg);
+            strLog = msg.ToString();
+            DoCallBackResult(msg);
+        }
+        else
+        {
+            strLog = strJavaLog;
+        }
+        Debug.Log("AndroidManager : SetJavaLog : " + strLog);
+
+    }
+
+    void DoCallBackResult(XiaomiCallbackMessage msg)
+    {
+        recivedMessage = msg;
+        switch (msg)
+        {
+            case XiaomiCallbackMessage.LICENSE_STATUS_LICENSED:
+                break;
+            case XiaomiCallbackMessage.ERROR_NO_XIAOMI_ACCOUNT:
+            case XiaomiCallbackMessage.ERROR_NOT_BIND_TO_SERVICE:
+            case XiaomiCallbackMessage.LICENSE_STATUS_NOT_LICENSED:
+                CallJavaFunc("OpenGameCenterUrl", ComponentSwitch.packageName);
+                Application.Quit();
+                break;
+            case XiaomiCallbackMessage.LICENSE_STATUS_RETRY:
+                StartAuth();
+                break;
+            case XiaomiCallbackMessage.ERROR_CHACK_LECENSE_EXCEPTION:
+            case XiaomiCallbackMessage.ERROR_CHACK_LICENSE_CHECKTIMEOUT:
+            case XiaomiCallbackMessage.ERROR_LICENSE_GETAUTHFILE:
+            case XiaomiCallbackMessage.ERROR_LICENSE_GETRESULT:
+            case XiaomiCallbackMessage.ERROR_LICENSE_SERVERERROR:
+            case XiaomiCallbackMessage.ERROR_NETWORK_ERROR:
+                Application.Quit();
+                break;
+        }
+    }
+
+    public XiaomiCallbackMessage GetCallbackMessage()
+    {
+        Debug.Log("GetCallBackMessage : recivedMessage : " + recivedMessage);
+        return recivedMessage;
+    }
+#endif
+}

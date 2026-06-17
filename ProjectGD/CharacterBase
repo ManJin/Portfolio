@@ -1,0 +1,105 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class CharacterBase : MonoBehaviour {
+
+    /*
+     * 필요 능력치 
+     * 힘: 1~ 장비, 레벨에 따라 증가. 
+     * 기술: 1~ 장비, 레벨에 따라 증가. 
+     * 정신: 1~ 장비, 레벨에 따라 증가. 
+     * Etc 아이템, 장비, 환경변수 
+     * // 위 세가지와 Etc를  조합하여 아래 리스트가 나옴.
+     * 생명력, max~0 타격시 감소. 장비에 따라 max 수치가 증감.
+     * 활동력, max~0 
+     * 소울에너지, 5단계. 단계당 25~0 의 능력치 정도.(임시)
+     * 
+     * + 숨겨진 수치 ( 지정은 되나 실제 게임화면에서 확인 불가능한 변수값. )
+     */
+
+    public enum DownState
+    {
+        front = 0,
+        up,
+        left,
+        right,
+    }
+
+    public struct Stat
+    {
+        public int level;
+        public float power;
+        public float technique;
+        public float mental;
+        public float vital;
+    }
+
+    public struct BattleStat
+    {
+        public float lifeGuage;
+        public float activityGuage;
+        public float soulGuage;
+
+        public float attack;
+        public float atkSpeed;
+        public float movSpeed;
+        public float dashSpeed;
+        //public float dashMoveSpeed;
+    }
+
+    public enum State
+    {
+        INIT = 0,
+        IDLE,
+        MOVE,
+        EVADE,
+        //DASH,
+        DAMAGE,
+        ATTACK,
+        HIDE,
+        HIDEMOVE,
+        //HIDEDASHMOVE,
+        DEAD,
+        WIN,
+    }
+
+    public PlayMakerFSM HeroFSM
+    {
+        get { return HeroFsm; }
+    }
+
+    public Stat myStat;
+    public BattleStat myBattleStat;
+    public DownState HeroDownState = DownState.front;
+
+    [HideInInspector]
+    public bool unbeatableState = false;
+
+    protected Transform myTrans = null;
+    protected State myState = State.INIT;
+    protected PlayMakerFSM HeroFsm = null;
+    protected SkinnedMeshRenderer[] HeroMeshs = null;
+    
+    protected float attackSpeed = 1.0f;
+
+
+    protected virtual void Awake()
+    {
+        //Debug.Log("Character Init : " + HeroFsm);
+        HeroFsm = transform.GetComponent<PlayMakerFSM>();
+        HeroMeshs = transform.GetComponentsInChildren<SkinnedMeshRenderer>() as SkinnedMeshRenderer[];
+        myStat = new Stat();
+        myBattleStat = new BattleStat();
+        myTrans = transform;
+    }
+
+    protected virtual void Start()
+    {
+        myState = State.INIT;
+    }
+
+    public Transform GetTransform()
+    {
+        return myTrans;
+    }
+}

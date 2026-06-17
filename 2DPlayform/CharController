@@ -1,0 +1,398 @@
+﻿using UnityEngine;
+using System.Collections;
+
+
+
+public class CharController : MonoBehaviour {
+
+    enum JumpHeight
+    {
+        Unknown,
+        Small,
+        Normal,
+        Special,
+        EndOfType,
+    }
+    JumpHeight jumpHeight = JumpHeight.Unknown;
+    Transform CharTransform = null;
+    //protected Animator animator = null;
+    GameContext gc = null;
+    //Character Status
+    GameContext.eCharacterJumpState jumpStatus;
+    bool isLeft = true;
+    Collider2D myCollider = null;
+    Collider2D myHeadCollider = null;
+    [SerializeField]
+    float jumpForce = 20000;
+    float speed = 1f;
+    float leftBuffSpeed = 1f;
+    float rightBuffSpeed = 1f;
+    float jumpAddForce = 0f;
+    float jumpBuffForce = 1f;
+    float beforePosY = 0;
+    // Use this for initialization
+
+    MainController mainController;
+
+    Vector2 m_vRightColliderOffset = new Vector2(0f, -0.03f);
+    Vector2 m_vLeftColliderOffset = new Vector2(0f, -0.03f);
+    Vector2 m_vRightHeadColliderOffset = new Vector2(0f, 1.47f);
+    Vector2 m_vLeftHeadColliderOffset = new Vector2(0f, 1.47f);
+    Vector3 m_vRightCharacterScalse = new Vector3(0.005f, 0.005f, 0.005f);
+    Vector3 m_vLeftCharacterScalse = new Vector3(-0.005f, 0.005f, 0.005f);
+    
+    CharacterData m_CharData = null;
+    //Collider2D myColl = null;
+    float m_fCharHeight = 1.2f;
+    AnimateChara _aniChara = null;
+    AnimateChara AniChara
+    {
+        get
+        {
+            if (_aniChara == null) _aniChara = GameObject.FindObjectOfType<AnimateChara>();
+            return _aniChara;
+        }
+    }
+    /// <summary>
+    /// Overreduce 용 변수  
+    /// </summary>
+    Transform myTransform = null;
+    Rigidbody2D myRigidbody2D = null;
+    public void setAni(Transform t)
+    {
+        CharTransform = t;
+        CharTransform.localPosition = new Vector3(CharTransform.localPosition.x, CharTransform.localPosition.y + m_fCharHeight, CharTransform.localPosition.z);
+        myCollider.offset = m_vLeftColliderOffset;
+        CharTransform.localScale = m_vLeftCharacterScalse;
+        ChangeAnimation(GameContext.eCharacterJumpState.NORMAL);
+        gc.EnableInput = true;
+    }
+    public float GetPosY()
+    {
+        return gameObject.transform.localPosition.y;
+    }
+    public void SetLeftBuffForce(float value)
+    {
+        leftBuffSpeed = value;
+    }
+    public void SetRightBuffForce(float value)
+    {
+        rightBuffSpeed = value;
+    }
+    public void SetJumpBuffForce(float value)
+    {
+        jumpBuffForce = value;
+    }
+    float UseJumpBuffForce()
+    {
+        float retVal = jumpBuffForce;
+        jumpBuffForce = 1.0f;
+        return retVal;
+    }
+    public void setGravity(float g)
+    {
+        GetComponent<Rigidbody2D>().gravityScale = g;
+    }
+    void Start()
+    {
+        gc = GameContext.GetInstance;
+        
+        mainController = GameObject.Find("GameControll").GetComponent<MainController>();
+        myCollider = this.GetComponent<BoxCollider2D>();
+        myHeadCollider = this.transform.FindChild("HeadBox").GetComponent<BoxCollider2D>();
+        myHeadCollider.isTrigger = true;
+        ChangeJumpStatus(GameContext.eCharacterJumpState.NORMAL);
+        myTransform = transform;
+        myRigidbody2D = this.GetComponent<Rigidbody2D>();
+    }
+
+	// Update is called once per frame
+    void Update()
+    {
+        // 올라가는 중이면
+        if (beforePosY != 0 && (GetCurrentJumpStatus() == GameContext.eCharacterJumpState.JUMPING_UP || GetCurrentJumpStatus() == GameContext.eCharacterJumpState.NORMAL))
+        {
+            // 이전 위치(Y 좌표)보다 밑이면 떨어지는....
+            float CharPosY = myTransform.position.y;
+            if (beforePosY > CharPosY)
+            {
+                ChangeJumpStatus(GameContext.eCharacterJumpState.JUMPING_DOWN);
+                mainController.SetBlockTrigger(false);
+                mainController.SetUIGage(0);
+                mainController.IsCanAddNewBlock();
+            }
+        }
+
+        beforePosY = myTransform.position.y;
+        
+    }
+
+    void FixedUpdate()
+    {
+        if (gc.Controller_Main.gameState != GameContext.eGameState.INGAME)
+            return;
+        if (GetCurrentJumpStatus() != GameContext.eCharacterJumpState.READY_JUMP)
+        {
+            if (isLeft)
+                myTransform.Translate(Vector3.left * leftBuffSpeed * speed * Time.fixedDeltaTime);
+            else
+                myTransform.Translate(Vector3.right * rightBuffSpeed * speed * Time.fixedDeltaTime);
+
+            if (GetCurrentJumpStatus() == GameContext.eCharacterJumpState.START_JUMP)
+            {
+                ChangeJumpStatus(GameContext.eCharacterJumpState.JUMPING_UP);
+                myRigidbody2D.AddForce(Vector3.up * jumpForce * jumpAddForce * UseJumpBuffForce() * Time.fixedDeltaTime);
+                mainController.SetBlockTrigger(true);
+            }
+        }
+        else // GetCurrentJumpStatus() == GameContext.eCharacterJumpState.READY_JUMP)
+        {
+            if (Test() == false)
+            {
+                ChangeJumpStatus(GameContext.eCharacterJumpState.START_JUMP);
+            }
+        }
+    }
+    bool Test()
+    {
+        return AniChara.IsPlaying();
+    }
+
+    void ChangeAnimation(GameContext.eCharacterJumpState cs)
+    {
+        if (AniChara == null)
+            return;
+        //Debug.Log(jumpHeight);
+        //Debug.Log("AA : " + gc.UserData.Character.Type + " : " + (int)gc.UserData.Character.Type);
+        switch (cs)
+        {
+            case GameContext.eCharacterJumpState.NORMAL:
+                if (gc.IsExtendedMotions == false)
+                {
+                    if (gc.UserData.Character.Type == CharacterData.CharacterType.Human
+                        || gc.UserData.Character.Type == CharacterData.CharacterType.Devil)
+                    {
+                        AniChara.PlayAnimation("run_group1");
+                    }
+                    else if (gc.UserData.Character.Type == CharacterData.CharacterType.Elf
+                        || gc.UserData.Character.Type == CharacterData.CharacterType.Beast)
+                    {
+                        AniChara.PlayAnimation("run_group2");
+                    }
+                }
+                else
+                {
+                    AniChara.PlayAnimation("sprun" + (int)gc.UserData.Character.Type);
+                }
+                break;
+            case GameContext.eCharacterJumpState.LANDING:
+                //AniChara.PlayAnimation("idle");
+                break;
+            case GameContext.eCharacterJumpState.JUMPING_UP:
+                if (jumpHeight == JumpHeight.Small)
+                    AniChara.PlayAnimation("s_jump_fly");
+                else if (jumpHeight == JumpHeight.Normal)
+                    AniChara.PlayAnimation("n_jump_fly");
+                else
+                {
+                    
+                    if(gc.IsExtendedMotions == false)
+                        AniChara.PlayAnimation("sp_jump_fly");
+                    else
+                        AniChara.PlayAnimation("sp_jump_ver" + ((int)gc.UserData.Character.Type).ToString() + "_fly");
+                }
+                break;
+            case GameContext.eCharacterJumpState.JUMPING_DOWN:
+                if (jumpHeight == JumpHeight.Small)
+                    AniChara.PlayAnimation("fall_s_jump");
+                else if (jumpHeight == JumpHeight.Normal)
+                {
+                    if (gc.UserData.Character.Type == CharacterData.CharacterType.Human)
+                        AniChara.PlayAnimation("fall");
+                    else
+                    {
+                        AniChara.PlayAnimation("fall_ver" + ((int)gc.UserData.Character.Type).ToString());
+                    }
+                }
+                else
+                {
+                    if (gc.UserData.Character.Type == CharacterData.CharacterType.Human)
+                        AniChara.PlayAnimation("fall_s_jump");
+                    else
+                    {
+                        AniChara.PlayAnimation("fall_ver" + ((int)gc.UserData.Character.Type).ToString());
+                    }
+                }
+                break;
+            case GameContext.eCharacterJumpState.START_JUMP:
+                //AniChara.PlayAnimation("idle");
+                break;
+            case GameContext.eCharacterJumpState.READY_JUMP:
+                if (jumpHeight == JumpHeight.Small)
+                    AniChara.PlayAnimation("s_jump_ready");
+                else if (jumpHeight == JumpHeight.Normal)
+                    AniChara.PlayAnimation("n_jump_ready");
+                else
+                
+                {
+                    if(gc.IsExtendedMotions == false)
+                        AniChara.PlayAnimation("sp_jump_ready");
+                    else
+                        AniChara.PlayAnimation("sp_jump_ver" + ((int)gc.UserData.Character.Type).ToString() + "_ready");
+                }
+                break;
+
+        }
+    }
+    IEnumerator WaitingForChange()
+    {
+        while (Test() == true)
+            yield return 0;
+        if (jumpHeight == JumpHeight.Small)
+            AniChara.PlayAnimation("fall_s_jump");
+        else
+            AniChara.PlayAnimation("fall");
+    }
+    /**
+     * 
+     */
+    void OnCollisionEnter2D(Collision2D coll)
+    {
+        
+    }
+
+    void OnCollisionStay2D(Collision2D coll)
+    {
+        // 하강 중에 발판 등을 밟으면 처리
+        OnBlockAtDown(coll);
+    }
+    void OnTriggerEnter2D(Collider2D coll)
+    {
+        // 데쓰존에 부딛치면 처리
+        if (coll.gameObject.CompareTag("DeathZone"))
+        {
+            //Debug.Log("AaaaaaaAAAahaaaa");
+            mainController.EndGame();
+        }
+        else if (coll.gameObject.CompareTag("WallLeft"))
+        {
+            isLeft = false;
+            GameContext.GetInstance.SetCharacterDirection(GameContext.eDirection.Left);
+            myCollider.offset = m_vRightColliderOffset;
+            CharTransform.localScale = m_vRightCharacterScalse;
+            myHeadCollider.offset = m_vRightHeadColliderOffset;
+        }
+        else if (coll.gameObject.CompareTag("WallRight"))
+        {
+            isLeft = true;
+            GameContext.GetInstance.SetCharacterDirection(GameContext.eDirection.Right);
+            myCollider.offset = m_vLeftColliderOffset;
+            CharTransform.localScale = m_vLeftCharacterScalse;
+            myHeadCollider.offset = m_vLeftHeadColliderOffset;
+        }
+
+    }
+    public void JumpingStart(float jumpAddPos )
+    {
+        if (jumpAddPos == 0)
+            return;
+        //Debug.Log(jumpAddPos);
+
+        
+        if (jumpAddPos < 0.35f)
+            jumpHeight = JumpHeight.Small;
+        else if (jumpAddPos >= 0.35f && jumpAddPos < 0.99f)
+            jumpHeight = JumpHeight.Normal;
+        else
+        {
+            
+            jumpHeight = JumpHeight.Special;
+            //임시값. 
+            jumpAddPos *= 1.5f;
+            //Debug.Log(jumpHeight);
+        }
+
+        ChangeJumpStatus(GameContext.eCharacterJumpState.READY_JUMP);
+        
+
+        this.jumpAddForce = (jumpAddPos * 5.0f) + 1;
+        
+    }
+
+    void ChangeJumpStatus(GameContext.eCharacterJumpState cs)
+    {
+        
+        gc.JumpState = cs;
+        jumpStatus = cs;
+        //Debug.Log("Change JumpState : " + cs);
+        if (cs == GameContext.eCharacterJumpState.JUMPING_DOWN)
+        {
+            //gc.InGameCamera.CameraStop(1.1f);
+            //myCollider
+            myHeadCollider.isTrigger = true;
+        }
+        else if (cs == GameContext.eCharacterJumpState.JUMPING_UP)
+        {
+            myHeadCollider.isTrigger = false;
+        }
+        ChangeAnimation(cs);
+    }
+
+    public GameContext.eCharacterJumpState GetCurrentJumpStatus()
+    {
+        return jumpStatus;
+    }
+
+    /**
+     * 하강 중 처리
+     */
+    private void OnBlockAtDown(Collision2D coll)
+    {
+        GameObject collObj = coll.gameObject;
+        
+        if (collObj.CompareTag("Ground") || collObj.CompareTag("Block"))
+        {
+            // 점프 중이면 랜딩처리
+            if (GetCurrentJumpStatus() == GameContext.eCharacterJumpState.JUMPING_DOWN)
+            {
+                //if (gc.InGameCamera.IsControlLost() == true)
+                //    gc.InGameCamera.SetCameraWorks();
+
+                ChangeJumpStatus(GameContext.eCharacterJumpState.NORMAL);
+                mainController.SetUIGage(0);
+            }
+
+        }
+    }
+
+    /***********************
+     * 캐릭터 능력치 변경  *
+     ***********************/
+
+    /**
+     * SetMass : 캐릭터 질량 변경
+     *  - 질량 수치가 높을 수록 높이 뛰지 못한다.
+     */
+    public void SetMass(float m)
+    {
+        myRigidbody2D.mass = 5;
+    }
+
+    /**
+     * SetSpeed : 캐릭터 이동 속도 변경
+     * 수치가 높을수록 이속이 빠르다.
+     */
+    public void SetSpeed(float s)
+    {
+        speed = s;
+    }
+
+    /**
+     * SetJumpForce : 점프시 뛰는 힘 변경
+     * 수치가 높을 수록 뛰는 힘이 커서 높이 뛴다.
+     */
+    public void SetJumpForce(float j)
+    {
+        jumpForce = j;
+    }
+}

@@ -1,0 +1,463 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+
+
+public class CharacterEffectEntry
+{
+    public CharacterEffectEntry(int nID, string strName, Vector3 vPos)
+    {
+        m_nEffectID = nID;
+        m_strEffectName = strName;
+        m_vEffectPos = vPos;
+    }
+
+    int m_nEffectID = 0;
+    public int EffectID
+    {
+        get { return m_nEffectID; }
+        set { m_nEffectID = value; }
+    }
+
+    string m_strEffectName = "";
+    public string EffectName
+    {
+        get { return m_strEffectName; }
+        set { m_strEffectName = value; }
+    }
+
+    Vector3 m_vEffectPos = Vector3.zero;
+    public Vector3 EffectPos
+    {
+        get { return m_vEffectPos; }
+        set { m_vEffectPos = value; }
+    }
+}
+
+public class CharacterView
+{
+    eCharacterType m_eCurrCharacterType = eCharacterType.eCharacterType_UnKnown;
+
+    dfPanel m_pnPanel = null;
+    dfTextureSprite m_tsCharacter = null;
+
+    GameObject m_objPlayer = null;
+    public GameObject Player
+    {
+        get { return m_objPlayer; }
+    }
+    GameObject m_objCharacter = null;
+    string m_strModelFileName = "";
+    
+    Vector3 m_vCharacterPos = Vector3.zero;
+    Vector3 m_vCharacterRotation = new Vector3(0f, -10f, 0f);
+    
+    bool m_bIdleMotion = false;
+    int m_nIdleMotionCount = 0;
+
+    // Animation 컴포넌트.
+    CodeUtil.AnimationPlayer<eCharacterMotion> m_Animation = new CodeUtil.AnimationPlayer<eCharacterMotion>();
+
+    CodeUtil.ContainerMap<string, CharacterEffectEntry, int> m_mapCharacterEffect = new CodeUtil.ContainerMap<string, CharacterEffectEntry, int>();
+
+    Canvas m_Canvas = null;
+    Vector3 m_vFXPos = new Vector3(15.0f, 5, 70);
+    public void OnStart(dfPanel pnPanel)
+    {
+        m_pnPanel = pnPanel;
+        if (m_pnPanel == null)
+            return;
+        m_Canvas = GameObject.Find("Canvas").GetComponent<Canvas>();
+        m_tsCharacter = m_pnPanel.transform.FindChild("tsCharacter").GetComponent<dfTextureSprite>();
+        m_pnPanel.Click += new MouseEventHandler(OnClick);
+        
+        SetSize((int)m_pnPanel.Width, (int)m_pnPanel.Height);
+        SetPosition(Vector3.zero);
+        SetCharacterPos(eCharacterType.eCharacterType_UnKnown);
+
+        OnShow(false);
+    }
+
+    public void OnUpdate()
+    {
+        if (m_objCharacter != null)
+            m_Animation.OnUpdate();
+    }
+
+    public void OnClick(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        PlayCharacterMotion(false);
+    }
+
+    public void OnShow(bool bShow, bool isCharacterSelect = false)
+    {
+        if (m_pnPanel == null)
+            return;
+
+        CommonObject.GetInstance.StartCoroutine(_ShowProcess(bShow, isCharacterSelect));
+    }
+
+    IEnumerator _ShowProcess(bool bShow, bool isCharacterSelect = false)
+    {
+        m_pnPanel.IsVisible = false;
+        RemoveCurrCharacter();
+        yield return 0;
+
+        if (bShow == true)
+        {
+            m_eCurrCharacterType = CommonObject.GameData.User.Inventory.Character.CurrCharacterType;
+            SetCharacterPos(m_eCurrCharacterType);
+            SetCharacterType(m_eCurrCharacterType, isCharacterSelect);
+
+            m_pnPanel.OnPositionChanged();
+            m_pnPanel.OnSizeChanged();
+            yield return new WaitForEndOfFrame();
+
+            m_pnPanel.IsVisible = true;
+        }
+    }
+
+    public void OnShowInGacha(bool bShow, eCharacterType eType)
+    {
+        if (m_pnPanel == null)
+            return;
+        
+        m_pnPanel.IsVisible = bShow;
+        if (bShow == true)
+        {
+
+            SetCharacterGacharListPos(eType);
+            _ChangeCharacterTypeInGachaList(eType);
+
+            m_pnPanel.OnPositionChanged();
+            m_pnPanel.OnSizeChanged();
+        }
+        else
+        {
+            RemoveCurrCharacter();
+        }
+    }
+    public void ShowEffect(string strEffectName, Vector3 vPos)
+    {
+        int nEffectID = CommonObject.EffectManager.Play(strEffectName, m_objCharacter.transform, vPos);
+        if (nEffectID > 0)
+            m_mapCharacterEffect.Add(strEffectName, new CharacterEffectEntry(nEffectID, strEffectName, vPos));
+    }
+
+    public void HideEffect(string strEffectName)
+    {
+        CharacterEffectEntry find = m_mapCharacterEffect.GetValue(strEffectName);
+        if (find != null)
+        {
+            CommonObject.EffectManager.Stop(find.EffectName, find.EffectID);
+            m_mapCharacterEffect.Remove(strEffectName);
+        }
+    }
+
+    public void HideEffectAfterLoop(string strEffectName)
+    {
+        CharacterEffectEntry find = m_mapCharacterEffect.GetValue(strEffectName);
+        if (find != null)
+        {
+            // StopAfterLoop 로 스톱시키는 이펙트는 즉시 제거되지 않는다. 가차화면에서 나갈때 ClearEffect() 가 호출되어야 완전히 제거됨
+            CommonObject.EffectManager.StopAfterLoop(find.EffectName, find.EffectID);
+        }
+    }
+
+    public void ClearEffect()
+    {
+        foreach (KeyValuePair<string, CharacterEffectEntry> entry in m_mapCharacterEffect.Dictionary)
+        {
+            if (entry.Value != null)
+                CommonObject.EffectManager.Stop(entry.Value.EffectName, entry.Value.EffectID);
+        }
+
+        m_mapCharacterEffect.Clear();
+    }
+
+    public void SetPosition(Vector3 vPos)
+    {
+        if (m_pnPanel != null)
+        {
+            m_pnPanel.RelativePosition = vPos;
+            m_pnPanel.Update();
+        }
+    }
+
+    public void SetSize(int nWidth, int nHeight)
+    {
+        if (m_pnPanel != null)
+        {
+            m_pnPanel.Width = nWidth;
+            m_pnPanel.Height = nHeight;
+            m_pnPanel.Update();
+
+            if (m_tsCharacter != null)
+            {
+                m_tsCharacter.Width = nWidth;
+                m_tsCharacter.Height = nHeight;
+                m_tsCharacter.Update();
+
+                m_tsCharacter.Texture = null;
+
+                if (CommonObject.CharacterRenderCamera.targetTexture != null)
+                {
+                    RenderTexture.Destroy(CommonObject.CharacterRenderCamera.targetTexture);
+                    CommonObject.CharacterRenderCamera.targetTexture = null;
+                }
+
+                CommonObject.CharacterRenderCamera.targetTexture = new RenderTexture(nWidth, nHeight, 32);
+                m_tsCharacter.Texture = CommonObject.CharacterRenderCamera.targetTexture;
+
+                CommonObject.CharacterRenderCamera.ResetAspect();
+                CommonObject.CharacterRenderCamera.orthographicSize = 5;
+            }
+        }
+    }
+
+    public void OnShowByByGachaCharacterType(bool bShow, eCharacterType eCharacterType)
+    {
+        
+        m_pnPanel.StartCoroutine(_SetGachaCharacterType(bShow,eCharacterType));
+    }
+
+    IEnumerator _SetGachaCharacterType(bool bShow, eCharacterType eCharacterType)
+    {
+        m_pnPanel.IsVisible = false;
+        m_Canvas.worldCamera = GameObject.Find("CharacterRenderCamera").camera;
+        
+
+        _ChangeCharacterType(eCharacterType, false, true);
+        if( bShow == true && eCharacterType != eCharacterType.eCharacterType_UnKnown)
+        {
+            string strEffectName = _GetGachaEffect(eCharacterType);
+            ShowEffect(strEffectName, m_vFXPos);
+        }
+
+        m_bIdleMotion = false;
+        m_Animation.Stop();
+        m_Animation.PlayAfterStop(eCharacterMotion.Hello);
+
+        yield return new WaitForEndOfFrame();
+        m_pnPanel.IsVisible = bShow;
+    }
+
+    string _GetGachaEffect(eCharacterType eType)
+    {
+        CharacterDataEntry find = CommonObject.GameData.Character.Get(eType);
+        if (find == null)
+            return "Gacha_BackLight";
+
+        return find.Rarity == 3 ? "Gacha_BackLight_Rainbow" : "Gacha_BackLight";
+    }
+
+    public void SetCharacterType(eCharacterType eCharacterType, bool isCharSelect = false)
+    {
+        bool bShow = m_pnPanel.IsVisible;
+        m_pnPanel.IsVisible = false;
+
+        //Debug.Log("There : " + isCharSelect);
+        _ChangeCharacterType(eCharacterType, isCharSelect);
+        PlayCharacterMotion(true);
+
+        m_pnPanel.IsVisible = bShow;
+    }
+
+    void _ChangeCharacterType(eCharacterType eCharacterType, bool isCharSelect = false, bool isGachar = false)
+    {
+        RemoveCurrCharacter();
+
+        CharacterDataEntry characterData = CommonObject.GameData.Character.Get(eCharacterType);
+        if (characterData == null)
+            return;
+
+        if (m_objPlayer == null)
+        {
+            m_objPlayer = GetObject("Character/Player");
+            if (m_objPlayer == null)
+                return;
+        }
+        m_objPlayer.transform.localPosition = Vector3.zero;
+        m_objCharacter = GetObject(characterData.ModelFileName);
+        if (m_objCharacter == null)
+            return;
+        //Debug.Log("Fuck : " + isCharSelect);
+        if (isCharSelect == false && isGachar == false)
+            SetCharacterPos(eCharacterType);
+        else if (isCharSelect == true && isGachar == false)
+            SetCharacterSelectPos(eCharacterType);
+        else if (isCharSelect == false && isGachar == true)
+            SetCharacterGacharPos(eCharacterType);
+        else
+            SetCharacterPos(eCharacterType);
+
+        m_eCurrCharacterType = eCharacterType;
+        m_strModelFileName = characterData.ModelFileName;
+
+        // 캐릭터를 플레이어에 연결.
+        m_objPlayer.transform.localPosition = m_vCharacterPos;
+        m_objPlayer.transform.eulerAngles = m_vCharacterRotation;
+        m_objCharacter.transform.parent = m_objPlayer.transform;
+        m_objCharacter.transform.localPosition = Vector3.zero;
+        m_objCharacter.transform.localRotation = Quaternion.identity;
+        _SetCharacterBillboard();
+
+        // 애니메이션 설정.
+        if (m_Animation.OnCreate(m_objCharacter) == true)
+        {
+            m_Animation.AddMotion(eCharacterMotion.Lobby1, "motion_char_idle01", 1.0f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_hello", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_compliment", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_sad", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_worry", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Hello, "motion_char_hello", 1.0f);
+            m_Animation.EndCallback = EndCharacterMotion;
+        }
+    }
+    void _ChangeCharacterTypeInGachaList(eCharacterType eType)
+    {
+        RemoveCurrCharacter();
+
+        CharacterDataEntry characterData = CommonObject.GameData.Character.Get(eType);
+        if (characterData == null)
+            return;
+
+        if (m_objPlayer == null)
+        {
+            m_objPlayer = GetObject("Character/Player");
+            if (m_objPlayer == null)
+                return;
+        }
+        m_objPlayer.transform.localPosition = Vector3.zero;
+        m_objCharacter = GetObject(characterData.ModelFileName);
+        if (m_objCharacter == null)
+            return;
+        SetCharacterGacharListPos(eType);
+        //Debug.Log("Fuck : " + isCharSelect);
+        m_eCurrCharacterType = eType;
+        m_strModelFileName = characterData.ModelFileName;
+
+        // 캐릭터를 플레이어에 연결.
+        m_objPlayer.transform.localPosition = m_vCharacterPos;
+        m_objPlayer.transform.eulerAngles = new Vector3(0f, 12f, 0f);
+        m_objCharacter.transform.parent = m_objPlayer.transform;
+        m_objCharacter.transform.localPosition = Vector3.zero;
+        m_objCharacter.transform.localRotation = Quaternion.identity;
+        _SetCharacterBillboard();
+
+        // 애니메이션 설정.
+        if (m_Animation.OnCreate(m_objCharacter) == true)
+        {
+            m_Animation.AddMotion(eCharacterMotion.Lobby1, "motion_char_idle01", 1.0f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_hello", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_compliment", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_sad", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Lobby2, "motion_char_worry", 0.25f);
+            m_Animation.AddMotion(eCharacterMotion.Hello, "motion_char_hello", 1.0f);
+            m_Animation.EndCallback = EndCharacterMotion;
+        }
+    }
+    void RemoveCurrCharacter()
+    {
+        if (m_objCharacter != null)
+        {
+            string strEffectName = _GetGachaEffect(m_eCurrCharacterType);
+            HideEffect(strEffectName);
+            CommonObject.GameObjectPool.ReturnGameObject(m_strModelFileName, m_objCharacter);
+            
+            m_Canvas.worldCamera = null;
+            m_objCharacter = null;
+        }
+        m_Animation.OnDestroy();
+    }
+    public void StopCharacterFX()
+    {
+        string strEffectName = _GetGachaEffect(m_eCurrCharacterType);
+        HideEffectAfterLoop(strEffectName);
+    }
+    void PlayCharacterMotion(bool bIdle)
+    {
+        m_bIdleMotion = bIdle;
+
+        m_Animation.Stop();
+        m_Animation.RandomPlay((bIdle == true) ? eCharacterMotion.Lobby1 : eCharacterMotion.Lobby2);
+    }
+
+    void EndCharacterMotion()
+    {
+        int nCheckCount = (m_bIdleMotion == true) ? 4 : 0;
+        m_bIdleMotion = (m_nIdleMotionCount >= nCheckCount) ? !m_bIdleMotion : m_bIdleMotion;
+        m_nIdleMotionCount = (m_nIdleMotionCount >= nCheckCount) ? 0 : ++m_nIdleMotionCount;
+
+        PlayCharacterMotion(m_bIdleMotion);
+    }
+
+    GameObject GetObject(string strName)
+    {
+        if (CommonObject.GameObjectPool.IsHavePool(strName) == false)
+        {
+            if (CommonObject.GameObjectPool.LoadGameObjectPool(strName, 1) == false)
+                return null;
+        }
+        return CommonObject.GameObjectPool.GetGameObject(strName, Vector3.zero);
+    }
+
+    void CalcCharacterPos(Vector3 vPos)
+    {
+        // 화면 해상도 1920x1080 기준으로 좌표를 맞춰준다.
+        Vector2 vUIRatio = CommonObject.RootUI.GetUIResolutionRatio();
+        m_vCharacterPos.x = vPos.x * vUIRatio.x;
+        m_vCharacterPos.y = vPos.y * vUIRatio.y;
+        m_vCharacterPos.z = vPos.z;
+    }
+
+    void _SetCharacterBillboard()
+    {
+        if (m_objPlayer == null)
+            return;
+
+        GameObject objRenderCamera = GameObject.Find("CharacterRenderCamera");
+        if (objRenderCamera == null)
+            return;
+
+        Vector3 vCameraPos = objRenderCamera.transform.localPosition;
+        Vector3 vPlayerPos = m_objPlayer.transform.localPosition;
+
+        vPlayerPos.y = vCameraPos.y;
+        Vector3 vDir = vCameraPos - vPlayerPos;
+        vDir.Normalize();
+        vDir *= -1.0f;
+
+        m_objPlayer.transform.forward = vDir;
+    }
+
+    //%%%%%%%%%%%%%%%%
+    void SetCharacterPos(eCharacterType eCharacterType)
+    {
+        CharacterDataEntry entry = CommonObject.GameData.Character.Get(eCharacterType);
+        if (entry != null)
+            CalcCharacterPos(entry.LobbyPos);
+    }
+    void SetCharacterSelectPos(eCharacterType eCharacterType)
+    {
+        CharacterDataEntry entry = CommonObject.GameData.Character.Get(eCharacterType);
+        //Debug.Log("Fucking : " + entry.CharacterSelectPos);
+        if (entry != null)
+            CalcCharacterPos(entry.CharacterSelectPos);
+    }
+    void SetCharacterGacharPos(eCharacterType eCharacterType)
+    {
+        CharacterDataEntry entry = CommonObject.GameData.Character.Get(eCharacterType);
+        //Debug.Log("Fucking : " + entry.GachaPos);
+        if (entry != null)
+            CalcCharacterPos(entry.GachaPos);
+    }
+    void SetCharacterGacharListPos(eCharacterType eCharacterType)
+    {
+        CharacterDataEntry entry = CommonObject.GameData.Character.Get(eCharacterType);
+        //Debug.Log("Fucking : " + entry.GachaListPos);
+        if (entry != null)
+            CalcCharacterPos(entry.GachaListPos);
+    }
+}

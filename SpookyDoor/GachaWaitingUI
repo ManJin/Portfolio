@@ -1,0 +1,205 @@
+﻿using UnityEngine;
+using System.Collections;
+
+public class GachaWaitingUI 
+{
+    enum eGachaMotion
+    {
+        Stop,
+        Play,
+    }
+    dfPanel m_pnPanel = null;
+    dfTextureSprite m_tsGacha = null;
+
+    GameObject m_objGacha = null;
+    string m_strModelFilePath = "Gacha/GachaMachine";
+
+    Vector3 m_vGachaPos = new Vector3(0, -2010f, 55f);
+    Vector3 m_vGachaRotate = new Vector3(345f, 40f, 345f);
+
+    // Animation 컴포넌트.
+    CodeUtil.AnimationPlayer<eGachaMotion> m_Animation = new CodeUtil.AnimationPlayer<eGachaMotion>();
+
+    // 가챠 모션 플래그.
+    bool m_bEndMotion = false;
+    int m_nGachaWaitingFXID = 0;
+    Vector3 m_vFXPos = new Vector3(-2f, 7.2f, 2f);
+    Canvas m_Canvas = null;
+
+    eCharacterType m_eCharacterType = eCharacterType.eCharacterType_UnKnown;
+
+    public bool EndMotion
+    {
+        get { return m_bEndMotion; } 
+    }
+
+
+    public void OnStart(dfPanel pnPanel, eCharacterType eType)
+    {
+        m_pnPanel = pnPanel;
+        m_eCharacterType = eType;
+
+        if (m_pnPanel == null)
+            return;
+        m_Canvas = GameObject.Find("GachaRenderCamera/Canvas").GetComponent<Canvas>();
+        m_Canvas.renderMode = RenderMode.ScreenSpaceCamera;
+        m_Canvas.worldCamera = GameObject.Find("GachaRenderCamera").GetComponent<Camera>();
+
+        m_tsGacha = m_pnPanel.transform.FindChild("tsGacha").GetComponent<dfTextureSprite>();
+        m_pnPanel.StartCoroutine(_UpdateGachaAnimation());
+        SetSize(1920, 1080);
+        SetPosition(Vector3.zero);
+        SetObjectPos(m_vGachaPos);
+
+        OnShow(true);
+    }
+
+    IEnumerator _UpdateGachaAnimation()
+    {
+        while (true)
+        {
+            if (m_objGacha != null)
+            {
+                m_Animation.OnUpdate();
+            }
+
+            yield return 0;
+        }
+    }
+
+    public void OnShow(bool bIsShow)
+    {
+        if (m_pnPanel == null)
+            return;
+
+        m_pnPanel.IsVisible = bIsShow;
+        if (bIsShow == true)
+        {
+            SetGacharType();
+            m_pnPanel.OnPositionChanged();
+            m_pnPanel.OnSizeChanged();
+        }
+        else
+        {
+            RemoveCurrGacha();
+        }
+    }
+
+    public void SetPosition(Vector3 vPos)
+    {
+        if (m_pnPanel != null)
+        {
+            m_pnPanel.RelativePosition = vPos;
+            m_pnPanel.Update();
+        }
+    }
+
+    public void SetSize(int nWidth, int nHeight)
+    {
+        if (m_pnPanel != null)
+        {
+            m_pnPanel.Width = nWidth;
+            m_pnPanel.Height = nHeight;
+            m_pnPanel.Update();
+
+            if (m_tsGacha != null)
+            {
+                m_tsGacha.Width = nWidth;
+                m_tsGacha.Height = nHeight;
+                m_tsGacha.Update();
+
+                m_tsGacha.Texture = null;
+
+                if (CommonObject.GachaRenderCamera.targetTexture != null)
+                {
+                    RenderTexture.Destroy(CommonObject.GachaRenderCamera.targetTexture);
+                    CommonObject.GachaRenderCamera.targetTexture = null;
+                }
+
+                CommonObject.GachaRenderCamera.targetTexture = new RenderTexture(nWidth, nHeight, 32);
+                m_tsGacha.Texture = CommonObject.GachaRenderCamera.targetTexture;
+
+                CommonObject.GachaRenderCamera.ResetAspect();
+                CommonObject.GachaRenderCamera.orthographicSize = 5;
+            }
+        }
+    }
+
+    string _GetGachaBoxEffect()
+    {
+        CharacterDataEntry find = CommonObject.GameData.Character.Get(m_eCharacterType);
+        if (find == null)
+            return "Gacha_Box";
+
+        return find.Rarity == 3 ? "Gacha_Box_Rainbow" : "Gacha_Box";
+    }
+
+    public void SetGacharType()
+    {
+        m_objGacha = GetObject(m_strModelFilePath);
+        
+        if (m_objGacha == null)
+            return;
+        //Debug.Log("This");
+        string strEffectName = _GetGachaBoxEffect();
+        m_nGachaWaitingFXID = CommonObject.EffectManager.Play(strEffectName, m_objGacha.transform, m_vFXPos);
+        SetObjectPos(m_vGachaPos);
+        m_objGacha.transform.localPosition = m_vGachaPos;
+        m_objGacha.transform.localEulerAngles = m_vGachaRotate;
+
+        // 애니메이션 설정.
+        if (m_Animation.OnCreate(m_objGacha) == true)
+        {
+            m_Animation.AddMotion(eGachaMotion.Play, "Play", 1.0f);
+            m_Animation.EndCallback = EndGachaMotion;
+        }
+        m_bEndMotion = false;
+        PlayGachaMotion();
+    }
+
+    void RemoveCurrGacha()
+    {
+        if (m_objGacha != null)
+        {
+            CommonObject.GameObjectPool.ReturnGameObject(m_strModelFilePath, m_objGacha);
+            //Debug.Log("Here");
+            string strEffectName = _GetGachaBoxEffect();
+            CommonObject.EffectManager.Stop(strEffectName, m_nGachaWaitingFXID);
+            m_Canvas.worldCamera = GameObject.Find("CharacterRenderCamera").camera;
+            m_objGacha = null;
+        }
+        m_Animation.OnDestroy();
+        m_eCharacterType = eCharacterType.eCharacterType_UnKnown;
+    }
+
+    void PlayGachaMotion()
+    {
+        m_Animation.Stop();
+        m_Animation.Play(eGachaMotion.Play);
+    }
+
+    void EndGachaMotion()
+    {
+        m_bEndMotion = true;
+        OnShow(false);
+    }
+
+    GameObject GetObject(string strName)
+    {
+        if (CommonObject.GameObjectPool.IsHavePool(strName) == false)
+        {
+            if (CommonObject.GameObjectPool.LoadGameObjectPool(strName, 1) == false)
+                return null;
+        }
+        return CommonObject.GameObjectPool.GetGameObject(strName, Vector3.zero);
+    }
+
+    void SetObjectPos(Vector3 vPos)
+    {
+        // 화면 해상도 1920x1080 기준으로 좌표를 맞춰준다.
+        Vector2 vUIRatio = CommonObject.RootUI.GetUIResolutionRatio();
+        m_vGachaPos.x = vPos.x * (2f - vUIRatio.x);
+        m_vGachaPos.y = vPos.y * (2f - vUIRatio.y);
+        m_vGachaPos.z = vPos.z;
+    }
+}

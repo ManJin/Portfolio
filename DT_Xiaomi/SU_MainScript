@@ -1,0 +1,1319 @@
+﻿using System;
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+
+public class SU_MainScript : MonoBehaviour {
+    //LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+    #region VALUE_STRING
+    public const string ROOT = "root";
+    public const string CUR_CRYSTAL_POINT = "currentCrystalPoint";
+    public const string POPUP_CRYSTAL_POINT = "popupCrystalPoint";
+    public const string EMPTY_SHOPBASECLIP = "EmptyBase";
+    public const string EMPTY_BUY_BASECLIP = "EmptyBuyBase";
+    public const string EMPTY_FRONT_BASECLIP = "EmptyFrontBase";
+    public const string EMPTY_INVEN_BASE_EQUIPCLIP = "EmptyInvenEquipBase";
+    public const string EMPTY_INVEN_BASE_COMPCLIP = "EmptyInvenCompBase";
+    public const string EMPTY_INVEN_BASE_SELLCLIP = "EmptyInvenSellBase";
+
+    public const string COMPOUNDVIEW = "CompoundView";
+
+    public const string GET_SELL_BTNCLIP = "Get_Sell_Btn";
+    public const string SIDEMENU_CLIP = "SideMenu_Btn";
+
+    public const string SLOTPOINT1_CLIP = "SlotPoint1";
+    public const string SLOTPOINT2_CLIP = "SlotPoint2";
+    public const string SLOTPOINT3_CLIP = "SlotPoint3";
+    public const string SLOTPOINT4_CLIP = "SlotPoint4";
+    public const string SLOTPOINT5_CLIP = "SlotPoint5";
+    public const string SLOTPOINT6_CLIP = "SlotPoint6";
+    public const string SLOTPOINT7_CLIP = "SlotPoint7";
+    public const string SLOTPOINT8_CLIP = "SlotPoint8";
+    public const string SLOTPOINT9_CLIP = "SlotPoint9";
+
+    public const string COMPSLOTMAIN_CLIP = "main_card_point";
+    public const string COMPSLOTSUB_CLIP = "sub_card_point";
+
+    public const string EMPTY_BUYRESULT_BASECLIP = "EmptyBuyResultBase";
+    public const string EMPTY_COMPRESULT_BASECLIP = "EmptyCompResultBase";
+
+    public const string INFOMATION_TXT_CLIP = "InfomationTxt";
+    public const string BACK_BUTTON = "BACK";
+
+    public const string CRYSTALSHOP_BUTTON = "CrystalShopBtn";
+
+    public const string SCROLL_BAR = "ScrollBar";
+
+    public const string ACHIVEMSG = "AchiveMsg";
+    #endregion
+
+    bool cardCompounding = false;
+
+    //void OnGUI()
+    //{
+    //    if (GUI.Button(new Rect(0, 0, 100, 50), "Add"))
+    //        GameContext.GetInstance.gameData.CrystalTransaction(TRANSACTION_TYPE.CRYSTAL_PURCHASE, 10000);
+    //}
+     //Use this for initialization
+	void Start ()
+    {
+        #region
+        if (GameObject.Find("GameContextWorker") == null)
+        {
+            GameContext.GetInstance.InitUISound();
+            GameContext.GetInstance.InitString();
+            GameContext.GetInstance.SetToSystemLanguage();
+            GameContext.GetInstance.gameData.LoadSystemData();
+            GameContext.GetInstance.gameData.Load();
+
+            GameContext.GetInstance.gameData.GetOptionFromSaveData();
+
+            GameObject.Find("UI Camera").AddComponent<AudioListener>();
+        }
+        #endregion
+        init();
+	}
+
+    EquipDecisionView equipDecisionView;
+    [HideInInspector]
+    public CardResultViewer cardResultViewer = null;
+    CardEquipSlotViewer cardEquipSlotViewer;
+    CardCompViewer cardCompViewer;
+
+    Clip_ShopCardBasePlate cardShopBase;
+    Clip_BuyCardBasePlate buyCardBase;
+    Clip_InvenCardBasePlate invenCard_EquipBase;
+
+    [HideInInspector]
+    public Clip_InvenCardBasePlate invenCard_CompBase;
+    Clip_InvenCardBasePlate invenCard_SellBase;
+
+    [HideInInspector]
+    public dfLabel Label_CardCostInSell;
+
+    [HideInInspector]
+    public Clip_InvenCardBasePlate invenCard_CrystalBase;
+
+    void init()
+    {
+        GameContext.GetInstance.inputHandler.SetDelegateToBackKey(this.btnarrow_clicked);
+        LocalizedStringData local = GameContext.GetInstance.localizedStringData;     
+        fn_SideMenuEnable(enableMenuChange);
+
+        invenCard_EquipBase = GameObject.Find("ScrollPanel_Equip").AddComponent<Clip_InvenCardBasePlate>();
+        invenCard_CompBase = GameObject.Find("ScrollPanel_Comp").AddComponent<Clip_InvenCardBasePlate>();
+        invenCard_SellBase = GameObject.Find("ScrollPanel_Sell").AddComponent<Clip_InvenCardBasePlate>();
+        invenCard_CrystalBase = GameObject.Find("ScrollPanel_Crystal").AddComponent<Clip_InvenCardBasePlate>();
+
+        cardResultViewer = this.gameObject.AddComponent<CardResultViewer>();
+
+        cardEquipSlotViewer = this.gameObject.AddComponent < CardEquipSlotViewer>();
+
+        cardCompViewer = this.gameObject.AddComponent < CardCompViewer>();
+
+        cardShopBase = new Clip_ShopCardBasePlate();
+        cardShopBase.Init();
+
+        buyCardBase = this.gameObject.AddComponent < Clip_BuyCardBasePlate>();
+
+        
+
+        Label_CardCostInSell = GameObject.Find("Label_CostInSell").GetComponent<dfLabel>();
+
+        dfScrollPanel[] S_panels = gameObject.GetComponentsInChildren<dfScrollPanel>();
+        foreach (dfScrollPanel panel in S_panels)
+        {
+            panel.AutoReset = true;
+            panel.AutoLayout = true;
+        }
+
+        InitStore();
+        SetMenuText();
+        InitCrystalPoint();
+        equipDecisionView = new EquipDecisionView(this);
+
+        #region BUTTON_SETTING
+        dfButton tmp_button = null;
+        dfPanel tmp_panel = null;
+
+        Button_BuyCard[0].Click += new MouseEventHandler(fn_PackageCardClicked1); // '카드상점' : '1~3 레벨카드' 버튼
+        Button_BuyCard[1].Click += new MouseEventHandler(fn_PackageCardClicked2); // '카드상점' : '2~4 레벨카드' 버튼
+        Button_BuyCard[2].Click += new MouseEventHandler(fn_PackageCardClicked3); // '카드상점' : '3~5 레벨카드' 버튼
+
+        Card_HiddenCard.Click += new MouseEventHandler(OnClicked_BackfaceCard); // '카드상점' : 카드구매 후 카드 뒷면 버튼
+
+        Button_PupupYes.Click += new MouseEventHandler(Button_PopupYes_Click); // 기본팝업 '예' 버튼
+        Button_PupupNo.Click += new MouseEventHandler(Button_PopupNo_Click); // 기본팝업 '아니오' 버튼
+        Button_PupupYes.Text = local.GetString(1022);
+        Button_PupupNo.Text = local.GetString(1023);
+
+        tmp_button = Panel_MarketPopup[1] as dfButton; // '카드상점' : '카드 구매 확인 팝업' : '예' 버튼
+        tmp_button.Click += new MouseEventHandler(popget_cardFactory);
+        tmp_button = Panel_MarketPopup[2] as dfButton; // '카드상점' : '카드 구매 확인 팝업' : '아니오' 버튼
+        tmp_button.Click += new MouseEventHandler(cancel_cardFactory);
+
+        dfButton[] SideMenubuttons = Panel_SideMenu.GetComponentsInChildren<dfButton>();
+        foreach (dfButton button in SideMenubuttons)
+        {
+            if (button.name == "Button_Market")
+                button.Click += new MouseEventHandler(btnshop_Clicked);
+            else if (button.name == "Button_Equip")
+                button.Click += new MouseEventHandler(btnequip_clicked);
+            else if (button.name == "Button_Comp")
+                button.Click += new MouseEventHandler(btnfactory_clicked);
+            else if (button.name == "Button_Sell")
+                button.Click += new MouseEventHandler(cardsell_clicked);
+            //else if (button.name == "Button_Crystal")
+            //    button.Click += new MouseEventHandler(crystal_clicked);
+        }
+        tmp_button = GameObject.Find("Panel_About").GetComponentInChildren<dfButton>();
+        tmp_button.Click += new MouseEventHandler(equipInforBTN_clicked);
+
+        tmp_panel = GameObject.Find("Panel_ClickedCard").GetComponent<dfPanel>();
+        tmp_panel.Click += new MouseEventHandler(equipInforBACKclicked);
+
+        tmp_button = CardMenu[3].GetComponentInChildren<dfButton>();
+        CardMenu[3].GetComponentInChildren<dfButton>().Text = GameContext.GetInstance.localizedStringData.GetString(1035);
+        tmp_button.Click += new MouseEventHandler(btnsell2_clicked);
+
+        tmp_button = GameObject.Find("Button_MainCard").GetComponent<dfButton>(); // 카드합성 : 베이스카드 버튼 가져오기
+        tmp_button.IsInteractive = true;
+        tmp_button.Click += new MouseEventHandler(maintap_clicked); // 클릭 시 동작함수 등록하기
+
+        tmp_button = GameObject.Find("DeleteMainCard").GetComponent<dfButton>(); // 카드합성 : 베이스카드 지우기 버튼 가져오기
+        tmp_button.IsInteractive = true;
+        tmp_button.Click += new MouseEventHandler(mainXBtn_clicked); // 클릭 시 동작함수 등록하기
+
+        tmp_button = GameObject.Find("Button_MaterialCard").GetComponent<dfButton>(); // 카드합성 : 서브카드 버튼 가져오기
+        tmp_button.IsInteractive = true;
+        tmp_button.Click += new MouseEventHandler(onSubTap_clicked); // 클릭 시 동작함수 등록하기
+
+        tmp_button = GameObject.Find("DeleteMeterialCard").GetComponent<dfButton>(); // 카드합성 : 서브카드 지우기 버튼 가져오기
+        tmp_button.IsInteractive = true;
+        tmp_button.Click += new MouseEventHandler(subXBtn_clicked); // 클릭 시 동작함수 등록하기
+
+        tmp_button = GameObject.Find("Button_StartComp").GetComponent<dfButton>(); // 카드합성 : 카드합성 버튼 가져오기
+        tmp_button.IsInteractive = true;
+        tmp_button.Click += new MouseEventHandler(btn_cardcompound_clicked); // 클릭 시 동작함수 등록하기
+        
+        dfButton[] buttons = Panel_MarketResult.GetComponentsInChildren<dfButton>();
+        foreach (dfButton button in buttons)
+        {
+            if (button.name == "Button_Get")
+            {
+                button.Text = local.GetString(1036);
+                button.Click += new MouseEventHandler(OnCardGetClicked);
+            }
+            else if (button.name == "Button_Sell")
+            {
+                button.Text = local.GetString(1035);
+                button.Click += new MouseEventHandler(OnCardSellClicked);
+            }
+        }
+
+        buttons = GameObject.Find("Panel_CompEarnCard").GetComponentsInChildren<dfButton>();
+        foreach (dfButton button in buttons)
+        {
+            if (button.name == "Button_Get")
+            {
+                button.Text = local.GetString(1036);
+                button.Click += new MouseEventHandler(OnCardGetClicked);
+            }
+            else if (button.name == "Button_Sell")
+            {
+                button.Text = local.GetString(1035);
+                button.Click += new MouseEventHandler(OnCardSellClicked);
+            }
+        }
+
+        tmp_button = Button_ExitMenu;
+        tmp_button.Click += new MouseEventHandler(BackButton);
+        #endregion
+
+
+        //InitCrystalShop();
+
+    }
+
+    void BackButton(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        btnarrow_clicked();
+    }
+
+    void fn_PackageCardClicked1(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        btn_PackageCard_clicked(1001);
+    }
+
+    void fn_PackageCardClicked2(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        btn_PackageCard_clicked(1002);
+    }
+
+    void fn_PackageCardClicked3(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        btn_PackageCard_clicked(1003);
+    }
+
+    #region TEXT_INFO_NUMBER
+    public const int SHOPINFOTXT = 1024;
+    public const int CARDSHOP = 1001;
+    public const int CARDEQUIP = 1002;
+    public const int CARDCOMP = 1003;
+    public const int CARDSELL = 1004;
+    public const int CRYSTALSHOP = 2515;
+    public const int DECISIONMSG = 1014;
+    const int LACKINVEN = 1034;
+    #endregion
+
+    #region UI_OBJECTS
+    // SideMenu
+    public dfButton Button_Comp;
+    public dfButton Button_Equip;
+    public dfButton Button_Market;
+    public dfButton Button_Sell;
+    //public dfButton Button_Crystal;
+    // FixedLabels
+    public dfLabel Label_Title;
+    public dfLabel Label_TotalCrystal;
+    public dfLabel Label_Tip;
+    // EquipInfo
+    public dfPanel Panel_EquipInfo;
+
+    public dfControl[] CardMenu;
+    public dfScrollPanel ScrollPanel_MarketScrollBar;
+    public dfPanel Panel_EquipClickedCard;
+    //SpecialUpgrade 
+
+    #endregion
+
+    enum MENU_STATE
+    {
+        SHOP, EQUIP, COMP, SELL, CRYSTAL,
+    }
+    MENU_STATE curMenuState = MENU_STATE.SHOP;
+
+    bool enableMenuChange = true;
+    bool isInvenModified = false;
+
+    public void InitStore() // "스페셜 업그레이드' data 로드
+    {
+        UserPocket cardPocket = GameContext.GetInstance.gameData.GetPocket;
+        CardSystemManager.GetInstance.StartShop(cardPocket);
+    }
+
+    public dfControl[] Panel_MarketMenu;
+    public void btnshop_Clicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' 버튼 클릭 시 진입.
+    {
+        //카드 업그레이드 화면 중 왼쪽부분의 메뉴버튼(상점)
+        //상점 진열 중 카드 표시
+        if (enableMenuChange == false)
+            return;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        if (curMenuState != MENU_STATE.SHOP)
+        {
+            CardSave();
+
+            invenCard_EquipBase.ClearClipCard();
+            invenCard_EquipBase.ClearSlotViewCards();
+            invenCard_CompBase.ClearClipCard();
+            invenCard_SellBase.ClearClipCard();
+            invenCard_CrystalBase.ClearClipCard();
+
+            Label_Tip.Show();
+            Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(SHOPINFOTXT);
+
+            fn_ActiveMenu(CardMenu, "Market");
+            fn_ActiveMenu(Panel_MarketMenu, "ScrollPanel_Market");
+
+            curMenuState = MENU_STATE.SHOP;
+        }
+    }
+
+    int selectedPackageID = 0;
+    public dfButton[] Button_BuyCard;
+    public dfControl[] Panel_MarketPopup;
+    public dfControl[] Btn_Illum = null;
+    public void btn_PackageCard_clicked(uint cardID)  // 카드상점 내 카드 상품 1, 2, 3 중 하나 클릭 시 진입. 구매 팝업창 활성화.
+    {//1001, 1002, 1003
+        if (CardMenu[0].IsVisible == false)
+            return;
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+
+        selectedPackageID = (int)cardID;
+        CardGoods goodsInfo = cardShopBase.GetCardGoodsInfo((int)cardID);
+
+        //Debug.Log("Ahhhaahahahhhh : " + cardID);
+        for (int i = 0; i < Btn_Illum.Length; i++)
+        {
+            if((i+1001) == cardID)
+                Btn_Illum[i].IsVisible = true;
+            else
+                Btn_Illum[i].IsVisible = false;
+        }
+
+
+        dfLabel tmp_label;
+        dfButton tmp_button;
+        Panel_MarketPopup[0].Show();
+        tmp_button = Panel_MarketPopup[1] as dfButton;
+        tmp_button.Text = local.GetString(2503); // '예'
+        tmp_button = Panel_MarketPopup[2] as dfButton;
+        tmp_button.Text = local.GetString(2504); // '아니오'
+        tmp_label = Panel_MarketPopup[3] as dfLabel;
+        tmp_label.Text = local.GetString(CARDSHOP); // '카드 상점'
+        tmp_label = Panel_MarketPopup[4] as dfLabel;
+        string popupMsg = MakePopupInfoString(goodsInfo.minLV, goodsInfo.maxLV);
+        tmp_label.Text = popupMsg; // 팝업내용 / 구매할 카드 레벨
+        tmp_label = Panel_MarketPopup[5] as dfLabel;
+        tmp_label.Text = goodsInfo.price.ToString(); // 카드가격
+
+        enableMenuChange = false;
+        fn_SideMenuEnable(enableMenuChange);
+        fn_SideMenuEnable(false);
+    }
+
+    void fn_RemoveAllEvent(dfButton Button)
+    {
+        Button.RemoveAllEventHandlers();
+    }
+
+    public void fn_SideMenuEnable(bool Enable)
+    {
+        if (Enable)
+            Panel_SideMenu.Enable();
+        else
+            Panel_SideMenu.Disable();
+    }
+
+    string MakePopupInfoString(int minLV, int maxLV) // '카드상점' : 1,2,3 부스터카드 구매 시 발생하는 팝업 내용 셋팅
+    {
+        int localnum = 1012;
+        if (minLV == 1)
+            localnum = 1012;
+        else if (minLV == 2)
+            localnum = 1039;
+        else if (minLV == 3)
+            localnum = 1040;
+        StringBuilder sb = new StringBuilder("", 256);
+        sb.Append(GameContext.GetInstance.localizedStringData.GetString(localnum));
+        sb.Append("\n");
+        sb.Append(GameContext.GetInstance.localizedStringData.GetString(1011));
+        return sb.ToString();
+    }
+
+    void fn_ActiveMenu(dfControl[] Controls,string MenuName)
+    {
+        foreach (dfControl control in Controls)
+        {
+            if (control.name == MenuName)
+            {
+                //Debug.Log("MenuName : " + MenuName);
+                control.Show();
+            }
+            else
+            {
+                //Debug.Log("MenuName : " + MenuName);
+                control.Hide();
+            }
+        }
+    }
+
+    public dfPanel Panel_EarnCardInMarket;
+    public void OnClicked_BackfaceCard(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' : '부스터카드 클릭' : '구매팝업' : '예' : '카드뒷면' 클릭 시 진입
+    {
+        if (CardMenu[0].IsVisible == false)
+            return;
+        Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(SU_MainScript.DECISIONMSG);
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.eCARD_SOUND.Tap_001);
+        buyCardBase.SelectBackfaceCard();
+        Card_HiddenCard.Hide();
+        Panel_EarnCardInMarket.Show();
+
+        
+    }
+
+    public void OnCardSellClicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' : '부스터카드 클릭' : '구매팝업' : '예' : '카드뒷면클릭' : '판매' 클릭 시 진입
+    {
+        if (Panel_Pupup.IsVisible)
+            return;
+        GameContext.GetInstance.gameData.onPauseProcessing = true;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+
+        fn_CallPopup();
+    }
+
+    public GameObject Panel_MarketResult;
+    public GameObject Panel_CompResult;
+    public void OnCardGetClicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' : '부스터카드 클릭' : '구매팝업' : '예' : '카드뒷면클릭' : '획득' 클릭 시 진입
+    {
+        if (Panel_Pupup.IsVisible)
+            return;
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        //구매 or compound 한 카드 인벤토리로...       
+        Clip_FrontfaceCard.CARDBASESTATE state = cardResultViewer.cardBaseState;
+        if (state == Clip_FrontfaceCard.CARDBASESTATE.CARD_BUYRESULT_VIEW)
+        {
+            if (cardResultViewer.ClickedGetButton() == true)
+            {
+                CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+                //SetMaskToBase(EMPTY_SHOPBASECLIP);  //남은카드가 없다.
+
+                Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(SHOPINFOTXT);
+
+                SetVisible_MainThreeBtns(true);
+
+                fn_ActiveMenu(Panel_MarketMenu, "ScrollPanel_Market");
+
+                enableMenuChange = true;
+                fn_SideMenuEnable(enableMenuChange);
+
+                CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+                isInvenModified = true;
+                CardSave();
+            }
+            else
+                SetAutoDeleteTextInfo(DECISIONMSG, LACKINVEN, 2.5f);
+        }
+        else if (state == Clip_FrontfaceCard.CARDBASESTATE.CARD_COMPRESULT_VIEW)
+        {
+            GameContext.GetInstance.gameData.onPauseProcessing = true;
+            if (cardResultViewer.ClickedGetButton() == true)  //순서바꾸면 안됨...
+            {
+                invenCard_CompBase.ClearClipCard();
+
+                CardBase[] cards = CardSystemManager.GetInstance.GetCardsFromInventory();
+                if (cards.Length > 0)
+                    invenCard_CompBase.SetInvenCards(cards, Clip_FrontfaceCard.CARDBASESTATE.COMP_BASE_VIEW);
+
+                cardCompViewer.DisplayPrevBaseClip();
+                Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(1015);
+                enableMenuChange = true;
+                fn_SideMenuEnable(enableMenuChange);
+
+                SetVisible_MainThreeBtns(true);
+
+                //cardShopBase.dragable = true;
+                isInvenModified = true;
+                CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+                CardSave();
+            }
+            else
+                SetAutoDeleteTextInfo(DECISIONMSG, LACKINVEN, 2.5f);
+        }
+    }
+
+    public dfPanel Panel_SideMenu;
+    public dfButton Button_ExitMenu;
+    public dfButton Card_HiddenCard;
+    public void popget_cardFactory(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' : '부스터카드클릭' : '구매팝업' : '예 버튼 클릭 시 진입
+    {
+        CardGoods goods = cardShopBase.GetCardGoodsInfo((int)selectedPackageID);
+
+        GameContext gc = GameContext.GetInstance;
+
+        if (CardSystemManager.GetInstance.GetCardCntInInventory() == CardConsts.MAX_INVENTORYSLOT)
+        {
+            SetAutoDeleteTextInfo(SHOPINFOTXT, LACKINVEN, 2.5f);
+            enableMenuChange = true;
+            fn_SideMenuEnable(enableMenuChange);
+            //cardShopBase.dragable = true;
+            return;
+        }
+
+        if (GameContext.GetInstance.gameData.CrystalTransaction(TRANSACTION_TYPE.CARD_SYSTEM_PURCHASE, -goods.price))
+        {
+            int crystalPoint = GameContext.GetInstance.gameData.GetUserCrystal;
+            Label_TotalCrystal.Text = crystalPoint.ToString();
+            //카드구입
+            Panel_MarketMenu[0].Hide();
+            Panel_MarketPopup[0].Hide();
+            Card_HiddenCard.Show();
+
+            // 카드패키지 개봉
+            CardBase makeCards = CardSystemManager.GetInstance.CreateRandomCard((CardSystemManager.CARD_CREATION_FLAG)(goods.id - 1001));
+
+            if (makeCards != null)
+            {
+                Debug.Log("!CardName : " + makeCards.sellPrice.ToString());
+                buyCardBase.SetBoughtCard(makeCards);
+                Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(1013);
+                GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.eCARD_SOUND.Shop_001);
+                CardSystemManager.GetInstance.AddCardOnInventory(makeCards);
+                SetVisible_MainThreeBtns(false);
+                CardSystemManager.GetInstance.SaveShop();
+                gc.gameData.SaveSpecialUpgradeInfo();
+            }
+        }
+        else  //크리스탈 부족..
+        {
+            SetAutoDeleteTextInfo(SHOPINFOTXT, 1026, 2.5f);
+            Panel_MarketPopup[0].Hide();
+            fn_CallPopup();
+            GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+        }
+    }
+
+    public void cancel_cardFactory(dfControl control, dfMouseEventArgs mouseEvent)  // '카드상점' : '부스터카드클릭' : '구매팝업' : '아니오 버튼 클릭 시 진입
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+        enableMenuChange = true;
+        fn_SideMenuEnable(enableMenuChange);
+        Panel_MarketPopup[0].Hide();
+        //cardShopBase.dragable = true;
+    }
+
+    #region About_Popup
+    public dfPanel Panel_Pupup;
+    public dfButton Button_PupupYes;
+    public dfButton Button_PupupNo;
+    public dfLabel Label_PopupContent;
+    public dfLabel Label_PopupTitle;
+    void fn_CallPopup() // 크리스탈샾으로의 이동을 물어보는 팝업 호출 함수
+    {
+        Debug.Log("Call Popup : " + curMenuState);
+        if (Panel_Pupup != null)
+        {
+            if (curMenuState == MENU_STATE.SHOP || curMenuState == MENU_STATE.COMP)
+            {
+                LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+                string str = local.GetString(3014) + "\n\n" + local.GetString(2511) + "\n" + cardResultViewer.resultCardSellPrice.ToString();
+
+                Label_PopupContent.Text = str;
+
+                Panel_Pupup.Show();
+            }
+            else if (curMenuState == MENU_STATE.SELL)
+            {
+                LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+                string str = local.GetString(3014) + "\n\n" + local.GetString(2511) + "\n" + invenCard_SellBase.selectSellCardPrice.ToString();
+
+                Label_PopupContent.Text = str;
+
+                Panel_Pupup.Show();
+            }
+            else
+            {
+                LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+                string str = local.GetString(1026);
+
+                Label_PopupContent.Text = str;
+
+                Panel_Pupup.Show();
+            }
+        }
+    }
+
+    void Button_PopupNo_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+        Panel_Pupup.Hide();
+        enableMenuChange = true;
+        Panel_SideMenu.Enable();
+        if (curMenuState == MENU_STATE.SHOP)
+        {
+            Button_Market.Focus();
+        }
+        else if (curMenuState == MENU_STATE.COMP)
+        {
+            Button_Comp.Focus();
+        }
+        else if (curMenuState == MENU_STATE.SELL)
+        {
+            Button_Sell.Focus();
+        }
+
+    }
+
+    void Button_PopupYes_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        Panel_Pupup.Hide();
+        enableMenuChange = true;
+
+        Panel_SideMenu.Enable();
+        //Debug.Log("Popup : " + curMenuState);
+        if (curMenuState == MENU_STATE.SHOP)
+        {
+            Button_Market.Focus();
+            OnPopupConfirm_ResultCard();
+        }
+        else if (curMenuState == MENU_STATE.COMP)
+        {
+            Button_Comp.Focus();
+            OnPopupConfirm_ResultCard();
+        }
+        else if (curMenuState == MENU_STATE.SELL)
+        {
+            Button_Sell.Focus();
+            OnPopupConfirm_SellCard();
+        }
+        
+    }
+
+    void OnPopupConfirm_SellCard()
+    {
+        if (Panel_Pupup != null)
+        {
+            if (invenCard_SellBase.SellCard())
+            {
+                isInvenModified = true;
+                CardSystemManager.GetInstance.SaveShop();
+                CardSave();
+                ModifyCurrentCrystal();
+            }
+            else
+            {
+                GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+            }
+        }
+    }
+
+    private void OnPopupConfirm_ResultCard()//dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Clip_FrontfaceCard.CARDBASESTATE state = cardResultViewer.cardBaseState;
+        if (state == Clip_FrontfaceCard.CARDBASESTATE.CARD_BUYRESULT_VIEW)
+        {
+            SetVisible_MainThreeBtns(true);
+            dfPanel Panel = Panel_MarketResult.GetComponent<dfPanel>();
+            Panel.Hide();
+            Panel_MarketMenu[0].Show();
+
+            if (CardMenu[0].IsVisible == true)
+            {
+                enableMenuChange = true;
+                fn_SideMenuEnable(enableMenuChange);
+            }
+            CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+            cardResultViewer.ClickedSellButton();
+        }
+        else if (state == Clip_FrontfaceCard.CARDBASESTATE.CARD_COMPRESULT_VIEW)
+        {
+            cardResultViewer.ClickedSellButton();
+            invenCard_CompBase.ClearClipCard();
+            CardBase[] cards = CardSystemManager.GetInstance.GetCardsFromInventory();
+            if (cards.Length > 0)
+                invenCard_CompBase.SetInvenCards(cards, Clip_FrontfaceCard.CARDBASESTATE.COMP_BASE_VIEW);
+
+            Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(1015);
+            cardCompViewer.DisplayPrevBaseClip();
+
+            SetVisible_MainThreeBtns(true);
+            enableMenuChange = true;
+            fn_SideMenuEnable(enableMenuChange);
+            CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+        }
+        //cardShopBase.dragable = true;
+        isInvenModified = true;
+        ModifyCurrentCrystal();
+        Panel_Pupup.Hide();
+    }
+    #endregion
+
+    #region Card Equipment
+    /////////////////////////////////////////////////////////////////////////////////
+    //////// Card Equipment
+
+    public void btnequip_clicked(dfControl control, dfMouseEventArgs mouseEvent)  // '카드장착' 클릭 시 진입
+    {
+        if (enableMenuChange == false)
+            return;
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+
+        if (curMenuState != MENU_STATE.EQUIP)
+        {
+
+            CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+            CardSave();
+
+            invenCard_SellBase.ClearClipCard();
+            invenCard_CompBase.ClearClipCard();
+
+            //가지고 있는 카드 표시
+            CardBase[] cards = CardSystemManager.GetInstance.GetCardsFromInventory();
+            if (cards.Length > 0)
+                invenCard_EquipBase.SetInvenCards(cards, Clip_FrontfaceCard.CARDBASESTATE.EQUIP_BASE_VIEW);
+
+            CardBase[] slots = CardSystemManager.GetInstance.GetCardSlot(false);
+            if (slots.Length > 0)
+                cardEquipSlotViewer.SetSlotCards(slots);
+
+            fn_ActiveMenu(CardMenu, "Equip");
+
+            curMenuState = MENU_STATE.EQUIP;
+        }
+    }
+
+    public void equipInforBTN_clicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드장착' : '카드정보' : '장착' 버튼 클릭 시 진입
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        if (equipDecisionView.ds == EquipDecisionView.DECISION_STATE.EQUIP)
+        {
+            Debug.Log(selectEquipCardIdx.ToString());
+            if (cardEquipSlotViewer.CardEquipToSlot(selectEquipCardIdx) == true)
+            {
+                isInvenModified = true;
+            }
+        }
+        else
+        {
+            Debug.Log(selectEquipCardIdx.ToString());
+            cardEquipSlotViewer.OnClicked_FrontCard_EquipSlot(selectEquipCardIdx);
+        }
+        dfScrollPanel ScrollPanel = GameObject.Find("ScrollPanel_Equip").GetComponent<dfScrollPanel>();
+        ScrollPanel.IsInteractive = true;
+        enableMenuChange = true;
+        fn_SideMenuEnable(enableMenuChange);
+        equipDecisionView.visible = false;
+        CardSystemManager.GetInstance.SaveShop();
+        CardSave();
+    }
+
+    public void equipInforBACKclicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+
+        dfPanel tmp_panel = GameObject.Find("Panel_ClickedCard").GetComponent<dfPanel>();
+        tmp_panel.Hide();
+
+        dfScrollPanel ScrollPanel = GameObject.Find("ScrollPanel_Equip").GetComponent<dfScrollPanel>();
+        ScrollPanel.IsInteractive = true;
+        enableMenuChange = true;
+        fn_SideMenuEnable(enableMenuChange);
+    }
+    #endregion
+
+    #region Card Sell
+    /////////////////////////////////////////////////////////////////////////////////
+    //////// Card Sell menu
+    public void cardsell_clicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+
+        if (enableMenuChange == false)
+        {
+            return;
+        }
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+
+        if (curMenuState != MENU_STATE.SELL)
+        {
+            CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+            CardSave();
+
+            //cardResultViewer.VisibleDecisionButton(false);
+
+            invenCard_EquipBase.ClearClipCard();
+            invenCard_EquipBase.ClearSlotViewCards();
+            invenCard_CompBase.ClearClipCard();
+            invenCard_CrystalBase.ClearClipCard();
+
+            CardBase[] cards = CardSystemManager.GetInstance.GetCardsFromInventory();
+            if (cards.Length > 0)
+                invenCard_SellBase.SetInvenCards(cards, Clip_FrontfaceCard.CARDBASESTATE.SELL_BASE_VIEW);
+
+            invenCard_SellBase.DisplaySelectSellCardCrystal(true);
+
+            fn_ActiveMenu(CardMenu, "Sell");
+            Label_Tip.Hide();
+
+            curMenuState = MENU_STATE.SELL;
+        }
+    }
+
+    public void btnsell2_clicked(dfControl control, dfMouseEventArgs mouseEvent)  //카드팔기 버튼
+    {
+        if (enableMenuChange == false)
+            return;
+        if (invenCard_SellBase.IsSelectedSellCard() == false)
+            return;
+        enableMenuChange = false;
+        fn_SideMenuEnable(enableMenuChange);
+
+        fn_CallPopup();
+    }
+    #endregion
+
+    #region Card Upgrade(factory, compound)
+    /////////////////////////////////////////////////////////////////////////////////
+    //////// Card Upgrade(factory, compound)
+
+    public void btnfactory_clicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        if (enableMenuChange == false)
+            return;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+
+        if (curMenuState != MENU_STATE.COMP)
+        {
+            CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+            CardSave();
+
+            invenCard_EquipBase.ClearClipCard();
+            invenCard_EquipBase.ClearSlotViewCards();
+            invenCard_SellBase.ClearClipCard();
+            invenCard_CrystalBase.ClearClipCard();
+
+            CardBase[] cards = CardSystemManager.GetInstance.GetCardsFromInventory();
+            if (cards.Length > 0)
+            {
+                invenCard_CompBase.SetInvenCards(cards, Clip_FrontfaceCard.CARDBASESTATE.COMP_BASE_VIEW);
+            }
+
+            fn_ActiveMenu(CardMenu, "Comp");
+
+            Label_Tip.Show();
+            Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(1015);
+
+            curMenuState = MENU_STATE.COMP;
+        }
+    }
+
+    const int HAVENOTCARDTOCOMP = 3071;
+    const int INFOTXTTOCOMP = 1015;
+    public void maintap_clicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        Debug.Log("here");
+        if (CardMenu[2].IsVisible == false)
+            return;
+        if (CardSystemManager.GetInstance.GetCntCompEnableCard() < 2)
+        {
+            SetAutoDeleteTextInfo(INFOTXTTOCOMP, HAVENOTCARDTOCOMP, 2.5f);
+            return;
+        }
+        if (cardCompViewer.SetSelectCompoundSlot(CardCompViewer.Select_Tab.Main) == false)
+            return;
+        Debug.Log("there");
+        //Panel_SideMenu.Hide(); // 좌측 메뉴 버튼들 숨기기
+        //SetVisible_MainThreeBtns(false);
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        //enableMenuChange = false;
+        //fn_SideMenuEnable(enableMenuChange);
+    }
+
+    public void mainXBtn_clicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        if (cardCompounding)
+            return;
+        if (CardMenu[2].IsVisible == false)
+            return;
+        cardCompViewer.OnTouchCancelButton(CardCompViewer.Select_Tab.Main);
+        if (cardCompViewer.IsCompoundSlotEmpty())
+        {
+            enableMenuChange = true;
+            fn_SideMenuEnable(enableMenuChange);
+
+            SetVisible_MainThreeBtns(true);
+            Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(INFOTXTTOCOMP);
+        }
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+    }
+
+    public void onSubTap_clicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드공장' : 'TAP MATERIAL' 항목 클릭 시 진입
+    {
+        if (CardMenu[2].IsVisible == false)
+            return;
+        if (CardSystemManager.GetInstance.GetCntCompEnableCard() < 2)
+        {
+            SetAutoDeleteTextInfo(INFOTXTTOCOMP, HAVENOTCARDTOCOMP, 2.5f);
+            return;
+        }
+        if (cardCompViewer.SetSelectCompoundSlot(CardCompViewer.Select_Tab.Sub) == false)
+            return;
+
+        //Panel_SideMenu.Hide(); // 좌측 메뉴 버튼들 숨기기
+        //SetVisible_MainThreeBtns(false);
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        //enableMenuChange = false;
+        //fn_SideMenuEnable(enableMenuChange);
+    }
+
+    public void subXBtn_clicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드공장' : 'TAP MATERIAL' : 'X' 버튼 클릭 시 진입
+    {
+        if (cardCompounding)
+            return;
+        if (CardMenu[2].IsVisible == false)
+            return;
+        cardCompViewer.OnTouchCancelButton(CardCompViewer.Select_Tab.Sub);
+        if (cardCompViewer.IsCompoundSlotEmpty())
+        {
+            enableMenuChange = true;
+            fn_SideMenuEnable(enableMenuChange);
+
+            SetVisible_MainThreeBtns(true);
+            Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(INFOTXTTOCOMP);
+        }
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+    }
+
+    public void btn_cardcompound_clicked(dfControl control, dfMouseEventArgs mouseEvent)
+    {
+        GameContext.GetInstance.gameData.onPauseProcessing = false;
+        cardCompounding = true;
+
+        GameObject card = GameObject.Instantiate(Resources.Load("CompAni")) as GameObject;
+        card.transform.parent = GameObject.Find("Comp").transform;
+        dfPanel ControlAni = card.GetComponent<dfPanel>();
+        dfTweenVector2 tweenAni = card.GetComponent<dfTweenVector2>();
+        dfButton baseSizebutton = GameObject.Find("Button_StartComp").GetComponent<dfButton>();
+        ControlAni.Size = baseSizebutton.Size;
+        ControlAni.Position = baseSizebutton.Position;
+        tweenAni.StartValue = baseSizebutton.Size;
+        
+    }
+
+    public void DeleteSlotCardsCallback()   // '카드공장' : '함성' : 합성애니메이션 도중에 진입
+    {
+        cardCompViewer.mainSlotID = cardCompViewer.OnTouchCancelButton(CardCompViewer.Select_Tab.Main);
+        cardCompViewer.subSlotID = cardCompViewer.OnTouchCancelButton(CardCompViewer.Select_Tab.Sub);
+
+        dfControl tmp_control = null;
+        tmp_control = GameObject.Find("Panel_CompEarnCard").GetComponent<dfControl>();
+        tmp_control.Hide();
+        tmp_control = GameObject.Find("ScrollPanel_Comp").GetComponent<dfControl>();
+        tmp_control.Hide();
+        tmp_control = GameObject.Find("SelectCard").GetComponent<dfControl>();
+        tmp_control.Hide();
+
+        Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(SU_MainScript.DECISIONMSG);
+
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.eCARD_SOUND.Factory_001);
+    }
+
+    public void card_successANICallback() // '카드공장' : '합성' : 합성애니메이션 종료 시 진입
+    {
+        cardCompounding = false;
+        cardCompViewer.CardCompoundStart();
+        enableMenuChange = false;
+        fn_SideMenuEnable(enableMenuChange);
+        CardSystemManager.GetInstance.SortInventory(CardSortOption.SORT_LEVEL_DESCEND);
+    }
+
+    public void PlayCardCompoundResultAni(bool success) // card_successANICallback() : cardCompViewer.CardCompoundStart() 내에서 호출
+    {
+        if (success)
+            Debug.Log("Comp Suxex!!!!!!!!!");
+        else
+            Debug.Log("Epic Fail!!!!!!!!!");
+    }
+
+    #endregion
+
+    uint selectEquipCardIdx;
+    public void btn_FrontCard_clicked(uint cardBaseState, uint cardIdx) // '카드장착','카드공장','카드판매' 메뉴 활성화 중 '카드'클릭 시 진입
+    {
+#if UNITY_EDITOR
+        Debug.Log((Clip_FrontfaceCard.CARDBASESTATE)cardBaseState + "," + cardIdx);
+#endif
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.eCARD_SOUND.Tap_001);
+        switch ((Clip_FrontfaceCard.CARDBASESTATE)cardBaseState)
+        {
+            case Clip_FrontfaceCard.CARDBASESTATE.EQUIP_BASE_VIEW:
+                if (enableMenuChange == false)
+                    return;
+                //선택한 카드를 장착 칸으로 옮기고 장착효과를 주어야 함.
+                selectEquipCardIdx = cardIdx;
+                enableMenuChange = false;
+                fn_SideMenuEnable(enableMenuChange);
+                dfScrollPanel ScrollPanel = GameObject.Find("ScrollPanel_Equip").GetComponent<dfScrollPanel>();
+                ScrollPanel.IsInteractive = false;
+                CardBase cardToequip = CardSystemManager.GetInstance.GetCardFromInventory_ID(cardIdx);
+                equipDecisionView.SetEquipCardFrontInfo(cardToequip, true);
+                equipDecisionView.SetEquipCardEffectInfo(cardToequip);
+                equipDecisionView.visible = true;
+                break;
+
+            case Clip_FrontfaceCard.CARDBASESTATE.EQUIP_SLOT_VIEW:
+                if (enableMenuChange == false)
+                    return;
+                selectEquipCardIdx = cardIdx;
+                invenCard_EquipBase.dragable = false;
+                CardBase cardTorel = CardSystemManager.GetInstance.GetCardFromSlot((int)cardIdx);
+                equipDecisionView.SetEquipCardFrontInfo(cardTorel, false);
+                equipDecisionView.SetEquipCardEffectInfo(cardTorel);
+                equipDecisionView.visible = true;
+                break;
+
+            case Clip_FrontfaceCard.CARDBASESTATE.COMP_BASE_VIEW:
+                if (Clip_InvenCardBasePlate.IsCardSelectable(cardIdx))
+                {
+                    dfScrollPanel S_Panel_ScrollPanel_Comp = GameObject.Find("ScrollPanel_Comp").GetComponent<dfScrollPanel>(); // 카드선택용 스크롤 판넬 가져오기
+                    S_Panel_ScrollPanel_Comp.Hide(); // 숨기기
+                    dfPanel Panel_SelectCard = GameObject.Find("SelectCard").GetComponent<dfPanel>(); // 카드선택 판넬 가져오기
+                    Panel_SelectCard.Show(); // 보이기
+                    cardCompViewer.CardToCompoundSlot(cardIdx);
+                }
+                break;
+
+            case Clip_FrontfaceCard.CARDBASESTATE.SELL_BASE_VIEW:
+                if (enableMenuChange == false)
+                    return;
+                invenCard_SellBase.OnClicked_FrontCard(cardBaseState, cardIdx);
+                break;
+        }
+    }
+
+    void ModifyCurrentCrystal() // 소지중인 크리스탈 셋팅 함수
+    {
+        Label_TotalCrystal.Text = GameContext.GetInstance.gameData.GetUserCrystal.ToString();
+    }
+
+    public void SetVisible_MainThreeBtns(bool visible) // 사이드버튼, 크리스탈샵버튼, 뒤로버튼 보이게 / 안보이게 만드는 함수
+    {
+        if (visible)
+        {
+            Button_ExitMenu.Show();
+            Panel_SideMenu.Show();
+        }
+        else
+        {
+            Button_ExitMenu.Hide();
+            Panel_SideMenu.Hide();
+        }
+        
+    }
+
+    int textNumToReturn;
+    float deleteTime = 0f;
+    void SetAutoDeleteTextInfo(int returnTxtNum, int printTxtNum, float deleteTime) // 하단 보조설명 텍스트 자동전환 셋팅함수
+    {
+        textNumToReturn = returnTxtNum;
+        this.deleteTime = deleteTime;
+        Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(printTxtNum);
+    }
+
+    void CardSave(bool forceSave = false) // 입수한 카드상태 저장 함수
+    {
+        if (isInvenModified || forceSave)
+        {
+            GameContext.GetInstance.gameData.SaveSpecialUpgradeInfo();
+            isInvenModified = false;
+        }
+    }
+
+    void SetMenuText()
+    {
+        LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+        Debug.Log(local.GetString(CARDSHOP));
+        Button_Market.Text = local.GetString(CARDSHOP);
+        Button_Equip.Text = local.GetString(CARDEQUIP);
+        Button_Comp.Text = local.GetString(CARDCOMP);
+        Button_Sell.Text = local.GetString(CARDSELL);
+        //Button_Crystal.Text = local.GetString(CRYSTALSHOP);
+        Label_Tip.Text = local.GetString(SHOPINFOTXT);
+        Label_Title.Text = local.GetString(2403);
+        Button_BuyCard[0].transform.FindChild("Label_LV").GetComponent<dfLabel>().Text = local.GetString(5001);
+        Button_BuyCard[1].transform.FindChild("Label_LV").GetComponent<dfLabel>().Text = local.GetString(5002);
+        Button_BuyCard[2].transform.FindChild("Label_LV").GetComponent<dfLabel>().Text = local.GetString(5003);
+    }
+
+    void InitCrystalPoint() // userdata에서 크리스탈 숫자 로드 / 텍스트 표기 함수
+    {
+        int currentCrystalPoint = GameContext.GetInstance.gameData.GetUserCrystal;
+        Label_TotalCrystal.Text = currentCrystalPoint.ToString();
+        // 현재 소유한 크리스탈 표기 구현해야함
+    }
+
+    public void btnarrow_clicked()  // '<<'버튼 클릭 시 진입
+    {
+        if (enableMenuChange == false)
+            return;
+        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+        CardSave(true);
+
+        GameContext.GetInstance.inputHandler.BackToPreviousInputEvent();
+        GameContext.GetInstance.sceneMover.SetPrevSceneRootActive(true);
+        DestroySpecialUpgrade();
+    }
+
+    public void DestroySpecialUpgrade()
+    {
+        if (cardShopBase != null)
+            cardShopBase = null;
+        if (buyCardBase != null)
+            GameObject.DestroyObject(buyCardBase.gameObject);
+        if (invenCard_EquipBase != null)
+            GameObject.DestroyObject(invenCard_EquipBase.gameObject);
+        if (invenCard_SellBase != null)
+            GameObject.DestroyObject(invenCard_SellBase.gameObject);
+        if (invenCard_CompBase != null)
+            GameObject.DestroyObject(invenCard_CompBase.gameObject);
+        if (cardCompViewer != null)
+            GameObject.DestroyObject(cardCompViewer.gameObject);
+        if (cardEquipSlotViewer != null)
+            GameObject.DestroyObject(cardEquipSlotViewer.gameObject);
+        if (cardResultViewer != null)
+            GameObject.DestroyObject(cardResultViewer.gameObject);
+
+
+        CardSystemManager.GetInstance.CloseShop();
+
+        if (equipDecisionView != null)
+            equipDecisionView.Unload();
+
+        Destroy(this.gameObject);
+
+        equipDecisionView = null;
+
+        GC.Collect();
+        Resources.UnloadUnusedAssets();
+        Destroy(this.gameObject);
+
+
+    }
+
+    //#region CrystalShop
+    //public dfButton[] Btn_Crystal = null;
+    //public dfPanel Popup_Crystal = null;
+    //public dfButton[] Btn_Popup_Crystal = null;
+    //public dfLabel Popup_Crystal_Contents = null;
+    //public dfLabel Popup_Crystal_Title = null;
+
+    //public struct CrystalInfo
+    //{
+    //    public int id;
+    //    public int cost;
+    //    public int amount;
+    //}
+    //CrystalInfo[] cInfo = null;
+    //CrystalInfo selectedInfo;
+    //void InitCrystalShop()
+    //{
+    //    LoadCrystalInfo();
+    //    for (int i = 0; i < Btn_Crystal.Length; i++)
+    //    {
+    //       dfLabel tempCost = Btn_Crystal[i].transform.FindChild("Label_Cost").GetComponent<dfLabel>();
+    //       dfLabel tempAmount = Btn_Crystal[i].transform.FindChild("Label_Amount").GetComponent<dfLabel>();
+    //       tempAmount.Text = cInfo[i].amount.ToString() + " Crystal";
+    //       tempCost.Text = cInfo[i].cost.ToString();
+    //       Btn_Crystal[i].Click += new MouseEventHandler(Button_Crystal_Click); //크리스탈 구매 합업
+    //    }
+    //    Btn_Popup_Crystal[0].Click += new MouseEventHandler(Button_Crystal_Buy_OK_Click);
+    //    Btn_Popup_Crystal[1].Click += new MouseEventHandler(Button_Crystal_Buy_NO_Click);
+    //}
+    //void Button_Crystal_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    //{
+    //    //Debug.Log("This Clicked");
+    //    GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+    //    int controlIndex = int.Parse(control.name.Substring(control.name.Length-1, 1));
+    //    PopupCrystal(controlIndex);
+    //    enableMenuChange = true;
+    //    Panel_SideMenu.Disable();
+    //}
+    //void Button_Crystal_Buy_OK_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    //{
+    //    //
+
+    //    if (GameContext.GetInstance.gameData.GetUserCrystal >= selectedInfo.cost)
+    //    {
+    //        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+    //        GameContext.GetInstance.gameData.CrystalTransaction(TRANSACTION_TYPE.CRYSTAL_PURCHASE, -selectedInfo.cost);
+    //        GameContext.GetInstance.gameData.CrystalTransaction(TRANSACTION_TYPE.CRYSTAL_PURCHASE, selectedInfo.amount);
+    //        Popup_Crystal.Hide();
+    //        enableMenuChange = true;
+    //        Panel_SideMenu.Enable();
+    //        ModifyCurrentCrystal();
+    //    }
+    //    else
+    //    {
+    //        SetAutoDeleteTextInfo(SHOPINFOTXT, 1026, 2.5f);
+    //        Popup_Crystal.Hide();
+    //        fn_CallPopup();
+    //        GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+    //    }
+    //}
+    //void Button_Crystal_Buy_NO_Click(dfControl control, dfMouseEventArgs mouseEvent)
+    //{
+    //    GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.CANCEL);
+    //    Popup_Crystal.Hide();
+    //    enableMenuChange = true;
+    //    Panel_SideMenu.Enable();
+    //}
+    //void PopupCrystal(int goodsIndex)
+    //{
+    //    LocalizedStringData local = GameContext.GetInstance.localizedStringData;
+    //    selectedInfo = cInfo[goodsIndex - 1];
+    //    Popup_Crystal_Contents.Text = cInfo[goodsIndex - 1].amount + " " + local.GetString(1041) + " "  + cInfo[goodsIndex - 1].cost + " " + local.GetString(1042);
+    //    Popup_Crystal_Title.Text = local.GetString(2515);
+    //    Btn_Popup_Crystal[0].Text = local.GetString(1022);
+    //    Btn_Popup_Crystal[1].Text = local.GetString(1023);
+    //    Popup_Crystal.Show();
+    //}
+    //void LoadCrystalInfo()
+    //{
+    //    string[] files = null;
+    //    try
+    //    {
+    //        files = CFileManager.GetFileListInDirectory(FileConstants.ETC, "ShopGoods", FileConstants.CSVfileExt);
+    //    }
+    //    catch (System.Exception ex)
+    //    {
+    //        Debug.Log("LoadCrystalInfo : " + ex.Message);
+    //        return;
+    //    }
+    //    string filepath = FileConstants.ETC + files[0] + FileConstants.CSVfileExt;
+    //    CSVLoader loader = new CSVLoader(filepath);
+    //    cInfo = new CrystalInfo[loader.LineMaxNum];
+    //    for (int i = 0; i < loader.LineMaxNum; i++)
+    //    {
+    //        cInfo[i].id = loader.GetInt();
+    //        cInfo[i].cost = loader.GetInt();
+    //        cInfo[i].amount = loader.GetInt();
+    //        loader.NextLine();
+    //    }
+    //}
+    //public void crystal_clicked(dfControl control, dfMouseEventArgs mouseEvent) // '카드상점' 버튼 클릭 시 진입.
+    //{
+    //    //카드 업그레이드 화면 중 왼쪽부분의 메뉴버튼(상점)
+    //    //상점 진열 중 카드 표시
+    //    if (enableMenuChange == false)
+    //        return;
+    //    GameContext.GetInstance.uiSoundPlayer.EffectSoundPlay(EffectSoundPlayer.UI_SOUND.OK);
+    //    if (curMenuState != MENU_STATE.CRYSTAL)
+    //    {
+    //        CardSave();
+
+    //        buyCardBase.ClearClipCard();
+    //        invenCard_EquipBase.ClearClipCard();
+    //        invenCard_CompBase.ClearClipCard();
+    //        invenCard_SellBase.ClearClipCard();
+    //        invenCard_CrystalBase.ClearClipCard();
+    //        invenCard_CrystalBase.ClearSlotViewCards();
+
+    //        Label_Tip.Hide();
+
+    //        fn_ActiveMenu(CardMenu, "Crystal");
+    //        fn_ActiveMenu(Panel_MarketMenu, "ScrollPanel_Crystal");
+
+    //        curMenuState = MENU_STATE.CRYSTAL;
+    //    }
+    //}
+    //#endregion
+    // Update is called once per frame
+    float elapseTime = 0f;
+	void Update () 
+    {
+        if (deleteTime > 0)
+        {
+            elapseTime += Time.deltaTime;
+            if (elapseTime > deleteTime)
+            {
+                Label_Tip.Text = GameContext.GetInstance.localizedStringData.GetString(textNumToReturn);
+                InitDeleteTime();
+            }
+        }
+	}
+
+    void InitDeleteTime() // 텍스트 자동수정 시간 리셋 함수
+    {
+        deleteTime = 0;
+        elapseTime = 0;
+    }
+}

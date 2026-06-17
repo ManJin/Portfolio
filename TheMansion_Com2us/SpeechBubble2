@@ -1,0 +1,114 @@
+using UnityEngine;
+using System.Collections;
+
+public class SpeechBubble2 : MonoBehaviour 
+{
+    
+    public void SetSpeechText(string setText , bool setReverse)  //  true:ann, false:lamp
+    {
+        if (isReversed == true && setReverse == false)
+        {
+            bubbleFrame.transform.rotation = new Quaternion(0.0f, 0.0f, 0.0f, 0.0f);
+            speechText.transform.localRotation = new Quaternion(0.0f, 0.0f, 0.0f, 0.0f);
+            isReversed = false;
+        }
+        else if (isReversed == false && setReverse == true)
+        {
+            bubbleFrame.transform.rotation = new Quaternion(180.0f, 0.0f, 0.0f, 0.0f);
+            speechText.transform.localRotation = new Quaternion(180.0f, 0.0f, 0.0f, 0.0f);
+            isReversed = true;
+        }
+        
+        speechText.text = setText;
+        string[] lineByLine = speechText.text.Split("\\n"[1]);
+        speechText.maxLineCount = lineByLine.Length > 4 ? 4 : lineByLine.Length;
+        
+        float scaleX = 0.1f;
+        float scaleY = 0.0f;
+
+        if( speechText.relativeSize.x > 2.2f)
+            scaleX = speechText.relativeSize.x * 0.42f - 0.9f;      
+
+        scaleY = 0.1f + 0.3f * speechText.maxLineCount;
+        if (setReverse)
+            speechText.transform.localPosition = new Vector3(7.0f, 16.0f + 2.0f * speechText.maxLineCount, -textDepth);
+        else
+            speechText.transform.localPosition = new Vector3(7.0f, 16.0f + 2.0f * speechText.maxLineCount, textDepth);
+        ResizeBuble(scaleX, scaleY);
+    }
+
+    void ResizeBuble(float setScaleX, float setScaleY)
+    {
+        float bubbleOffsetX = adjustBubbleLegth + adjustBubbleLegth * setScaleX;
+        float bubbleOffsetY = adjustBubbleLegth + adjustBubbleLegth * setScaleY;
+
+        Transform[] bubblePieces = bubbleFrame.GetComponentsInChildren<Transform>();
+        foreach (Transform piece in bubblePieces)
+        {
+            switch (piece.name)
+            {
+                case "down_l"://ns, nm
+                    break;
+                case "down_mid"://nm, sx
+                    piece.transform.localScale = new Vector3(setScaleX, 1.0f, 1.0f);
+                    break;
+                case "down_r"://mx. ns
+                    piece.transform.localPosition = new Vector3(bubbleOffsetX, piece.transform.localPosition.y, piece.transform.localPosition.z);
+                    break;
+                case "mid_l"://nm, sy
+                    piece.transform.localScale = new Vector3(1.0f, 1.0f, setScaleY);
+                    break;
+                case "mid_mid"://nm, sx, sy
+                    piece.transform.localScale = new Vector3(setScaleX, 1.0f, setScaleY);
+                    break;
+                case "mid_r"://mx, sy
+                    piece.transform.localScale = new Vector3(1.0f, 1.0f, setScaleY);
+                    piece.transform.localPosition = new Vector3(bubbleOffsetX, piece.transform.localPosition.y, piece.transform.localPosition.z);
+                    break;
+                case "up_l"://my, ns
+                    piece.transform.localPosition = new Vector3(piece.transform.localPosition.x, bubbleOffsetY, piece.transform.localPosition.z);
+                    break;
+                case "up_mid"://sx, my
+                    piece.transform.localScale = new Vector3(setScaleX, 1.0f, 1.0f);
+                    piece.transform.localPosition = new Vector3(piece.transform.localPosition.x, bubbleOffsetY, piece.transform.localPosition.z);
+                    break;
+                case "up_r"://my, mx, ns
+                    piece.transform.localPosition = new Vector3(bubbleOffsetX, bubbleOffsetY, piece.transform.localPosition.z);
+                    break;
+            }
+        }
+    }
+
+	void Start () {
+        myTrans = transform;
+        bubbleFrame = myTrans.Find("speech_bubble");
+        speechText = bubbleFrame.Find("DialogBox").GetComponent<UILabel>();
+	}
+
+	void Update () {
+        
+	}
+
+    public string testText = null;
+    void OnGUI()
+    {
+        if (GUI.Button(new Rect(100, 100, 100, 100), "11"))
+        {
+            SetSpeechText(testText, false);
+        }
+        if (GUI.Button(new Rect(100, 250, 100, 100), "22"))
+        {
+            SetSpeechText(testText, true);
+        }
+    }
+
+
+    readonly float adjustBubbleLegth = 13.3333f;
+    
+    Transform myTrans = null;
+    UILabel speechText = null;
+    Transform bubbleFrame = null;
+    float textDepth = 7.0f;
+    
+    bool isReversed = false;
+}
