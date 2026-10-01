@@ -1,0 +1,23 @@
+{
+    "name": "ServiceNetwork.Bootstrap",
+    "rootNamespace": "",
+    "references": [
+        "ServiceNetwork.Server",
+        "Unity.Entities",
+        "Unity.NetCode",
+        "Unity.Networking.Transport",
+        "Unity.Collections",
+        "Unity.Burst",
+        "Unity.Mathematics",
+        "ServiceNetwork.Shared"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

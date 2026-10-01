@@ -1,0 +1,16 @@
+{
+    "name": "ServiceNetwork.Server",
+    "rootNamespace": "",
+    "references": [
+        "ServiceNetwork.Shared"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

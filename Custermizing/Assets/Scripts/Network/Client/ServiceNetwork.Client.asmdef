@@ -1,0 +1,22 @@
+{
+    "name": "ServiceNetwork.Client",
+    "rootNamespace": "",
+    "references": [
+        "ServiceNetwork.Shared",
+        "Unity.Entities",
+        "Unity.NetCode",
+        "Unity.Networking.Transport",
+        "Unity.Collections",
+        "Unity.Burst",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

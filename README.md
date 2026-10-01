@@ -10,4 +10,5 @@
 7. SpookyDoor - JSC 쪽 퍼즐게임 작업. 
 8. TheMansion_Com2us - Kuno Interactive 쪽 게임 작업.
 9. TheMansion_Xiaomi - JSC 쪽 포팅 작업.
-
+10. Custermizing - 포트폴리오 추가위해 작업중인 내용
+                 - Dedicated Server 붙여서 온라인 게임 작성 중. 
