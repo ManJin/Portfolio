@@ -1,4 +1,5 @@
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.NetCode;
 using UnityEngine;
 
@@ -7,6 +8,12 @@ using UnityEngine;
 public struct MovementSpeed : IComponentData
 {
     [GhostField] public float Value;
+}
+
+public struct SmoothMoveState : IComponentData
+{
+    // 예측 롤백 시 서버와 일치해야 하므로 Ghost로 동기화
+    [GhostField(Quantization = 1000)] public float2 CurrentDir;
 }
 
 public class PlayerAuthoring : MonoBehaviour
@@ -20,6 +27,7 @@ public class PlayerAuthoring : MonoBehaviour
             var entity = GetEntity(TransformUsageFlags.Dynamic);
             AddComponent(entity, new MovementSpeed { Value = authoring.MoveSpeed });
             AddComponent<PlayerInput>(entity);
+            AddComponent(entity, new SmoothMoveState{CurrentDir = float2.zero});
         }
     }
 }

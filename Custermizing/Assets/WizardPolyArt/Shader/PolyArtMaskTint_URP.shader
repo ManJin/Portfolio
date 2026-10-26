@@ -70,6 +70,7 @@ Shader "Custom/URP/PolyArtMaskTint"
             #pragma fragment frag
 
             #pragma multi_compile_instancing
+            #pragma multi_compile _ DOTS_INSTANCING_ON   // ← 추가
             #pragma multi_compile_fog
 
             // Lighting / shadow keywords (matches URP Lit template)
@@ -189,6 +190,7 @@ Shader "Custom/URP/PolyArtMaskTint"
             #pragma vertex ShadowPassVertex
             #pragma fragment ShadowPassFragment
             #pragma multi_compile_instancing
+            #pragma multi_compile _ DOTS_INSTANCING_ON   // ← 추가
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
 
             float3 _LightDirection;
@@ -260,6 +262,7 @@ Shader "Custom/URP/PolyArtMaskTint"
             #pragma vertex DepthOnlyVertex
             #pragma fragment DepthOnlyFragment
             #pragma multi_compile_instancing
+            #pragma multi_compile _ DOTS_INSTANCING_ON   // ← 추가
 
             struct Attributes
             {

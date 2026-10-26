@@ -38,10 +38,14 @@ public partial struct PlayerInputGatherSystem : ISystem
         {
             float2 move = float2.zero;
 
-            // 이벤트를 받아서 정의된 Move Flags 로 이동값 갱신. 
+            // 이벤트를 받아서 정의된 Move Flags 로 이동값 갱신.
+            // 입력단계에서 Lerp 하지 않고 값 받은 후에 Lerp 하도록 한다.  
             if (inputManager.MoveDown) move.y -= 1;
+
             if (inputManager.MoveUp) move.y += 1;
+
             if (inputManager.MoveLeft) move.x -= 1;
+
             if (inputManager.MoveRight) move.x += 1;
 
             // read write 프로퍼티

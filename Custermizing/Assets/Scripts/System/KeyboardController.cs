@@ -136,6 +136,7 @@ namespace Portfolio
 
                 if (Input.GetKeyDown(bindingInfo.KeyCode))
                 {
+                    Debug.Log($"KeyDown {bindingInfo.KeyCode}");
                     // 눌렀다 이벤트
                     pressedButtonList.Add(bindingInfo);
                     MessageSystem.Instance.Publish(TouchEvent.Create(bindingInfo.DownTouchEventType, Vector2.zero));
